@@ -42,6 +42,26 @@ def app_data_dir(
 
 
 APP_DATA_DIR, IS_PORTABLE = app_data_dir()
+INSTALLED_DATA_DIR = app_data_dir(frozen=False)[0]  # where an installed (or 0.1.0) copy keeps settings
+SETTINGS_FILE_NAME = "config.json"
+
+
+def import_settings_into_portable(portable_dir: Path, installed_dir: Path = INSTALLED_DATA_DIR) -> str:
+    """Copy an installed copy's settings into a portable copy that has none yet.
+
+    Copying the portable zip over an older install (0.1.0 kept settings in %LOCALAPPDATA%)
+    would otherwise start from scratch. Copies, never moves; runs before logging starts, so
+    it returns what happened ("" = nothing).
+    """
+    source, target = installed_dir / SETTINGS_FILE_NAME, portable_dir / SETTINGS_FILE_NAME
+    if target.exists() or not source.is_file():
+        return ""
+    try:
+        portable_dir.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+    except OSError as exc:
+        return f"Could not copy settings from {source} into the portable copy: {exc}"
+    return f"Copied settings from {source} into the portable copy ({target})"
 CONFIG_PATH = APP_DATA_DIR / "config.json"
 
 # 127.0.0.1, not localhost: Windows tries ::1 first, and a server listening on IPv4 only

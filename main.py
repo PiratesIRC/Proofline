@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from proofline.app import LanguageToolApp
 from proofline.app_identity import DISPLAY_NAME, register_app_id, set_process_app_id
-from proofline.config import APP_DATA_DIR, IS_PORTABLE
+from proofline.config import APP_DATA_DIR, IS_PORTABLE, import_settings_into_portable
 from proofline.legacy import migrate_app_data, remove_legacy_registry
 from proofline.logging_setup import setup_logging
 from proofline.tray import ACTIVE_COLOR, make_icon
@@ -22,7 +22,7 @@ LOCK_TIMEOUT_MS = 100
 
 def main() -> int:
     # Before logging opens a file in the new folder. A portable copy keeps its own data.
-    migrated = "" if IS_PORTABLE else migrate_app_data()
+    migrated = import_settings_into_portable(APP_DATA_DIR) if IS_PORTABLE else migrate_app_data()
     setup_logging()
     log = logging.getLogger("main")
     sys.excepthook = lambda *exc_info: log.critical("Unhandled exception", exc_info=exc_info)

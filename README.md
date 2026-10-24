@@ -93,7 +93,9 @@ Download one of these from [Releases](https://github.com/PiratesIRC/Proofline/re
 > **More info** › **Run anyway** if you trust the download.
 
 To update, run the new installer (it replaces the old version), or quit the portable copy and
-replace its folder, keeping `data`. Settings › Advanced shows when a newer release is available,
+replace its folder, keeping `data`. A portable copy that has no settings of its own yet copies
+them once from `%LOCALAPPDATA%\Proofline` (an installed copy or 0.1.0), so unzipping the portable
+version over an older install keeps your settings. Settings › Advanced shows when a newer release is available,
 and **Check now** looks straight away.
 
 Coming from LanguageTool Desktop, the app's earlier name? Quit it first; Proofline moves its

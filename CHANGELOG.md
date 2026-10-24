@@ -2,6 +2,14 @@
 
 All notable changes to this project.
 
+## 0.2.1 (2026-10-24)
+
+### Fixed
+- Unzipping the 0.2.0 portable version over a 0.1.0 install started with empty settings: the
+  portable copy looked only in its own `data` folder. A portable copy without settings now copies
+  them once from `%LOCALAPPDATA%\Proofline`; the original file is left in place. (Workaround for
+  0.2.0: delete `portable.txt` from the Proofline folder.)
+
 ## 0.2.0 (2026-10-24)
 
 ### New
