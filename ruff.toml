@@ -1,0 +1,4 @@
+# Rules stay at ruff's defaults. The usage client is vendored byte-identically from the
+# plugin-stats project and pinned by sha256 (tests/test_usage_client_parity.py): never lint or fix it.
+extend-exclude = ["proofline/usage_client.py"]
+force-exclude = true

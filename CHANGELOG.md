@@ -1,9 +1,24 @@
 # Changelog
 
-All notable changes to this project. The project has no tagged releases yet; everything below
-is the current development version.
+All notable changes to this project.
 
-## Unreleased
+## 0.1.0 (2026-10-24)
+
+First release.
+
+### Anonymous usage counts (2026-10-24)
+- README badges for Corrections Applied and Active Installs, counted like the PiratesIRC
+  Dispatcharr plugins: the app sends its applied-correction total and a random install id to
+  plugin-stats.dpas.workers.dev, at most once an hour (ten minutes after a new correction). No text
+  is sent. **Settings › Advanced › Share anonymous usage counts** (on by default) turns it off and
+  asks the server to delete this install's figures.
+
+### Update check (2026-10-24)
+- Settings › Advanced › About shows the installed version and whether a newer release exists on
+  GitHub ("You are up to date", "Update available", or "Version check unavailable"), with a
+  Releases link. A new release is announced once by a tray notification.
+- The check runs in the background, at most daily (2 hours after a failure), and never while a
+  window opens. Turn it off with **Check for updates**.
 
 ### Renamed to Proofline (2026-10-24)
 - The app is now **Proofline** (was LanguageTool Desktop): window titles, tray tooltip, flyout,

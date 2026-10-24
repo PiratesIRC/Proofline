@@ -49,7 +49,8 @@ DEFAULT_MIN_WORDS = 2
 MIN_WORDS_RANGE = (1, 10)
 DEFAULT_HOTKEY_TOGGLE = "ctrl+alt+p"
 DEFAULT_HOTKEY_CHECK_NOW = "ctrl+alt+l"
-BOOL_FIELDS = ("enabled", "debug_mode", "badge_always_visible", "picky", "start_with_windows")
+BOOL_FIELDS = ("enabled", "debug_mode", "badge_always_visible", "picky", "start_with_windows", "check_for_updates",
+               "share_usage_counts")
 LIST_FIELDS = (
     "disabled_apps",
     "disabled_windows",
@@ -154,6 +155,8 @@ class Config:
     always_check_apps: tuple[str, ...] = ()
     custom_fields: tuple[str, ...] = ()  # field_signature() strings
     paused_until: str = ""  # ISO local time a timed pause ends; "" when not paused
+    check_for_updates: bool = True  # ask GitHub daily whether a newer release exists
+    share_usage_counts: bool = True  # anonymous Corrections Applied total for the README badges
 
     def __repr__(self) -> str:
         values = ", ".join(

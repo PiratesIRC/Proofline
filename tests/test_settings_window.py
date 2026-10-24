@@ -81,6 +81,8 @@ def test_opening_loads_values_without_saving(window, store):
         (lambda w: w.appearance._tray_color.setCurrentIndex(1), "tray_color", "#1565c0"),
         (lambda w: w.appearance._badge.setChecked(False), "badge_always_visible", False),
         (lambda w: w.advanced._debug.setChecked(True), "debug_mode", True),
+        (lambda w: w.advanced._updates.setChecked(False), "check_for_updates", False),
+        (lambda w: w.advanced._share_usage.setChecked(False), "share_usage_counts", False),
     ],
 )
 def test_changes_save_immediately(window, store, action, field, expected):
@@ -299,3 +301,23 @@ def test_register_app_id_writes_name_and_icon(qapp, tmp_path):
         winreg.DeleteKey(winreg.HKEY_CURRENT_USER, rf"{parent}\Test.App")
         winreg.DeleteKey(winreg.HKEY_CURRENT_USER, parent)
         winreg.DeleteKey(winreg.HKEY_CURRENT_USER, r"Software\ProoflineTest")
+
+
+def test_update_status_shows_in_about_card(window):
+    window.set_update_status("Update available: 0.2.0 (current: v0.1.0)")
+    assert "Update available: 0.2.0" in window.advanced.about_card.description_label.text()
+
+
+def test_opening_settings_never_checks_github(window, monkeypatch):
+    calls = []
+    monkeypatch.setattr("proofline.update_check.requests.get", lambda *a, **k: calls.append(a))
+    window.show_settings()
+    window.nav.setCurrentRow(window.pages.index(window.advanced))
+    assert calls == []
+
+
+def test_usage_sharing_switch_appears_once_and_names_what_is_sent(window):
+    cards = [c for c in window.advanced.cards if c.title_label.text() == "Share anonymous usage counts"]
+    assert len(cards) == 1
+    text = cards[0].description_label.text()
+    assert "plugin-stats.dpas.workers.dev" in text and "No text you type" in text

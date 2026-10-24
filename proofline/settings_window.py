@@ -132,6 +132,10 @@ class SettingsWindow(QWidget):
     def refresh_style(self) -> None:
         apply_style(self, self._config_provider().tray_color)
 
+    def set_update_status(self, status: str) -> None:
+        """Show the latest update check result (from the cache; never a network call)."""
+        self.advanced.show_update_status(status)
+
     def config_changed(self) -> None:
         """Called by the app after any config change; keeps an open window in sync."""
         if self.isVisible():

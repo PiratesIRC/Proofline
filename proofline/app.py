@@ -22,12 +22,15 @@ from proofline.settings_window import SettingsWindow
 from proofline.setup_hints import SetupHint, unseen
 from proofline.text_monitor import TextMonitor
 from proofline.tray import TrayIcon
+from proofline.update_check import UpdateChecker
+from proofline.usage import UsageReporting
 
 log = logging.getLogger(__name__)
 
 APP_NAME = DISPLAY_NAME
 NOTIFICATION_MS = 5000
 HINT_NOTIFICATION_MS = 15000
+UPDATE_HINT_PREFIX = "update-"  # shown_hints entry recording that a release was announced
 
 
 class LanguageToolApp(QObject):
@@ -40,6 +43,8 @@ class LanguageToolApp(QObject):
         integration: DesktopIntegration | None = None,
         health: ServerHealth | None = None,
         quick: QuickSettings | None = None,
+        updates: UpdateChecker | None = None,
+        usage: UsageReporting | None = None,
     ) -> None:
         super().__init__()
         self._qt_app = qt_app
@@ -98,6 +103,13 @@ class LanguageToolApp(QObject):
         self._integration = integration or DesktopIntegration(qt_app, self._tray, self._notify)
         self._integration.hotkey_triggered.connect(self._on_hotkey)
 
+        self._updates = updates or UpdateChecker(lambda: self._config.check_for_updates)
+        self._updates.checked.connect(lambda info: self._show_update_status())
+        self._updates.newer_version.connect(self._on_newer_version)
+        self._show_update_status()
+
+        self._usage = usage or UsageReporting(lambda: self._config)
+
     @property
     def config(self) -> Config:
         return self._config
@@ -108,6 +120,8 @@ class LanguageToolApp(QObject):
         self._quick.restore_pause()
         self._health.check_now()
         self._monitor.start()
+        self._updates.start()
+        self._usage.start()
         log.info("%s started", APP_NAME)
 
     def _save(self, config: Config) -> Config:
@@ -126,6 +140,11 @@ class LanguageToolApp(QObject):
         self._quick.refresh()
         if (config.server_url, config.language) != (previous.server_url, previous.language):
             self._health.check_now()
+        if config.check_for_updates != previous.check_for_updates:
+            self._updates.check_now()  # does nothing when turned off
+            self._show_update_status()
+        if config.share_usage_counts != previous.share_usage_counts:
+            self._usage.on_setting_changed()
 
     def _on_hotkey(self, action: str) -> None:
         log.info("Shortcut pressed: %s", action)
@@ -219,7 +238,9 @@ class LanguageToolApp(QObject):
             self._notify(f"Could not save settings: {exc}")
 
     def _on_replace_finished(self, ok: bool, message: str) -> None:
-        if not ok:
+        if ok:
+            self._usage.on_correction_applied()
+        else:
             self._notify(message)
 
     def _notify(self, message: str) -> None:
@@ -231,8 +252,29 @@ class LanguageToolApp(QObject):
         if self._outage_notices.should_notify():
             self._notify(message)
 
+    def _show_update_status(self) -> None:
+        if not self._config.check_for_updates:
+            self._settings.set_update_status("Update checks are off")
+            return
+        info = self._updates.current_info()
+        self._settings.set_update_status(info.message if info else "")
+
+    def _on_newer_version(self, version: str) -> None:
+        """Tell the user about a new release once, even across restarts."""
+        key = UPDATE_HINT_PREFIX + version
+        if key in self._config.shown_hints:
+            return
+        log.info("Announcing Proofline %s", version)
+        self._tray.showMessage(
+            APP_NAME, f"Proofline {version} is available. See Settings › Advanced.",
+            QSystemTrayIcon.MessageIcon.Information, HINT_NOTIFICATION_MS,
+        )
+        self._save_quietly(replace(self._config, shown_hints=(*self._config.shown_hints, key)))
+
     def _quit(self) -> None:
         log.info("Quit requested")
+        self._updates.stop()
+        self._usage.stop()
         self._monitor.stop()
         self._integration.shutdown()
         self._tray.hide()

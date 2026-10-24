@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from proofline import __version__
 from proofline.config import (
     DEFAULT_DISABLED_APPS,
     DEFAULT_DISABLED_WINDOWS,
@@ -49,6 +50,7 @@ from proofline.ui_kit import (
     ToggleSwitch,
     set_object_name,
 )
+from proofline.update_check import RELEASES_PAGE_URL
 from proofline.workers import run_in_background
 
 log = logging.getLogger(__name__)
@@ -74,6 +76,14 @@ STATUS_STYLE = {
 }
 CATEGORIES_HINT = "Common categories: TYPOS, GRAMMAR, PUNCTUATION, CASING, STYLE, TYPOGRAPHY, REDUNDANCY."
 LANGUAGETOOL_URL = "https://languagetool.org"
+UPDATES_DESCRIPTION = "Asks GitHub once a day whether a newer Proofline release exists. Sends none of your text."
+UPDATES_OFF_TEXT = "Update checks are off"
+SHARE_USAGE_DESCRIPTION = (
+    "Sends the number of corrections you applied and a random id for this install to the author's "
+    "counter at plugin-stats.dpas.workers.dev, at most once an hour, for the Active Installs and "
+    "Corrections Applied badges. No text you type is sent. Turning this off deletes this install's "
+    "figures from the server."
+)
 ATTRIBUTION_TEXT = (
     "Checking is done by the LanguageTool server you choose. Proofline is an independent "
     "project, not made by or affiliated with LanguageTooler GmbH."
@@ -462,7 +472,16 @@ class AdvancedPage(Page):
             button.clicked.connect(handler)
             diagnostics.add_control(button)
         self._layout.addWidget(self.result_bar)
-        self._card(SettingCard("About", f"Settings and logs are stored in {log_dir.parent}", keywords="version folder"))
+        self._updates = _switch("Check for updates", lambda on: self._emit(check_for_updates=on))
+        self._card(SettingCard("Check for updates", UPDATES_DESCRIPTION, self._updates,
+                               keywords="update version release github"))
+        self._share_usage = _switch("Share anonymous usage counts", lambda on: self._emit(share_usage_counts=on))
+        self._card(SettingCard("Share anonymous usage counts", SHARE_USAGE_DESCRIPTION, self._share_usage,
+                               keywords="usage statistics telemetry privacy badge"))
+        self._storage_text = f"Settings and logs are stored in {log_dir.parent}"
+        self.about_card = self._card(SettingCard("About", "", _link_label(RELEASES_PAGE_URL, "Releases"),
+                                                 keywords="version folder update"))
+        self.show_update_status("")
         self.attribution_link = _link_label(LANGUAGETOOL_URL, "languagetool.org")
         self._card(SettingCard("Powered by LanguageTool", ATTRIBUTION_TEXT, self.attribution_link,
                                keywords="about credits attribution affiliated"))
@@ -470,7 +489,14 @@ class AdvancedPage(Page):
 
     def _load(self, config: Config) -> None:
         self._debug.setChecked(config.debug_mode)
+        self._updates.setChecked(config.check_for_updates)
+        self._share_usage.setChecked(config.share_usage_counts)
         self.result_bar.hide()
+
+    def show_update_status(self, status: str) -> None:
+        """status: the update check's one-line result ('' while none is known yet)."""
+        version = f"Proofline {__version__}" + (f". {status}" if status else "")
+        self.about_card.set_description(f"{version}\n{self._storage_text}")
 
     def copy_report(self) -> None:
         QGuiApplication.clipboard().setText(build_report(self._config_provider(), self._log_dir))

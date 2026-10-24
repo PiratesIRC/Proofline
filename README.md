@@ -1,5 +1,8 @@
 # Proofline
 
+[![Corrections Applied](https://img.shields.io/endpoint?url=https://plugin-stats.dpas.workers.dev/badge/proofline/corrections_applied)](#anonymous-usage-counts)
+[![Active Installs](https://img.shields.io/endpoint?url=https://plugin-stats.dpas.workers.dev/badge/proofline/installs)](#anonymous-usage-counts)
+
 A system-wide grammar and spelling checker for Windows, in the spirit of the Grammarly and
 LanguageTool desktop apps. It runs in the system tray, watches the text box you are typing in
 (in almost any app), checks the text with a [LanguageTool](https://languagetool.org) server you
@@ -27,12 +30,14 @@ LanguageTool server it talks to is open source (LGPL 2.1).
 
 ## Install and run
 
-**Packaged build:** unzip `Proofline-<version>.zip` somewhere permanent (for example
-`%LOCALAPPDATA%\Programs`) and run `Proofline\Proofline.exe`. Coming from LanguageTool
-Desktop (the app's earlier name)? Quit it first; Proofline moves its settings over on first start.
-To update,
-quit the app, replace the folder and start it again; settings live in `%LOCALAPPDATA%` and are
-kept.
+**Packaged build:** download `Proofline-<version>.zip` from
+[Releases](https://github.com/PiratesIRC/Proofline/releases), unzip it somewhere permanent (for
+example `%LOCALAPPDATA%\Programs`) and run `Proofline\Proofline.exe`. Windows SmartScreen may warn
+that the app is unrecognised, because the exe is not code-signed; choose **More info** â€º **Run
+anyway** if you trust the download. Coming from LanguageTool Desktop (the app's earlier name)? Quit
+it first; Proofline moves its settings over on first start. To update, quit the app, replace the
+folder and start it again; settings live in `%LOCALAPPDATA%` and are kept. Settings â€º Advanced
+shows when a newer release is available.
 
 **From source:**
 
@@ -114,7 +119,7 @@ Settings save as soon as you change them, except the server address (**Save**) a
 | Apps & fields | Add a text field, apps and window titles to skip, apps to always check, custom fields |
 | Appearance | Theme (follow Windows / light / dark), accent and tray colour, badge visibility |
 | Shortcuts | Global shortcuts |
-| Advanced | Debug mode, copy a diagnostic report, open or clear logs, link to languagetool.org |
+| Advanced | Debug mode, copy a diagnostic report, open or clear logs, check for updates, share anonymous usage counts, version and update status, link to languagetool.org |
 
 All options and their `config.json` names are listed in
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
@@ -147,6 +152,51 @@ The app talks to LanguageTool's HTTP API (`POST /v2/check`).
 - Corrections use the clipboard briefly; your clipboard contents are restored and the correction
   is kept out of Windows clipboard history (Win+V).
 - Settings and logs live in `%LOCALAPPDATA%\Proofline`, outside OneDrive.
+- Anonymous usage counts: the app sends the number of corrections you applied and a random id
+  to the author's counter, at most once an hour, for the badges above. No text is sent. Details
+  and how to turn it off: [Anonymous usage counts](#anonymous-usage-counts).
+- Update check: about once a day the app asks GitHub (api.github.com) for the latest Proofline
+  release. The request contains no text you typed. Turn it off in **Settings › Advanced › Check
+  for updates**.
+
+## Anonymous usage counts
+
+The Corrections Applied and Active Installs badges count every install that leaves the "Share
+anonymous usage counts" setting (on by default, Settings › Advanced) ticked. Corrections Applied
+counts the suggestions you applied from the issues popup, after the app verified the text box and
+pasted the fix. Checks, ignored issues and corrections the app refused (for example because the text
+changed) count nothing. The same word fixed twice counts twice, so the figure measures fixes made,
+not distinct words.
+
+While the app runs, it sends its Corrections Applied total and a random id for this install to the
+author's counter at plugin-stats.dpas.workers.dev: when it starts, then on an hourly timer, and right
+after a correction. It sends at most once an hour, or ten minutes after the last successful send
+when a correction has just been applied.
+
+The server stores that id with the total and the date of the last report, and keeps them until this
+install unticks the setting and the delete succeeds, or until the author removes them by hand. An
+install that stops reporting still counts toward Corrections Applied. The connection shows the
+server your public IP address; the server uses it only to limit abuse and does not store it in its
+database, though when an install first registers it keeps a salted one-way hash of it (of its /64
+block for IPv6) for up to three days. Cloudflare, which hosts the server, keeps its own request
+logs. No text you typed, app names, window titles, server addresses or settings are sent. The
+figures are self-reported by installs and capped by the server, not verified.
+
+What counts as an active install: an install that sent at least one report in the last 30 UTC days.
+A badge changes after the server's hourly recount, which runs at the start of each UTC hour, and
+Shields may cache the badge for up to an hour more, so a new report can take up to about two hours
+to show.
+
+Unticking the setting makes the app ask the server, straight away, to delete this install's figures.
+Once the server confirms the delete, the app forgets its id, and ticking the setting again later
+starts a new one; if the delete could not reach the server, the app keeps the id and retries. The
+app keeps one line per applied correction (a count and a time, nothing else) in
+`%LOCALAPPDATA%\Proofline\usage_counts.jsonl`, and its id and the timing of its reports in
+`%LOCALAPPDATA%\Proofline\usage\proofline\` (`install_id`, `sent`, `backoff`, `disabled`,
+`delete_backoff`, `lock`). To start a new id, untick the setting so the server deletes this
+install's figures; deleting that folder while the setting is ticked, or before the server confirms
+the delete, leaves the old figures on the server, and the new id then sends the full total again,
+so the badge counts it twice.
 
 ## Development
 

@@ -10,6 +10,9 @@ the app; this page is for administrators, scripted deployment and troubleshootin
 | Settings | `%LOCALAPPDATA%\Proofline\config.json` |
 | Logs | `%LOCALAPPDATA%\Proofline\logs\app.log` (rotates at 2 MB, 3 backups) |
 | Single-instance lock | `%LOCALAPPDATA%\Proofline\app.lock` |
+| Update check result | `%LOCALAPPDATA%\Proofline\version_check.json` |
+| Usage count ledger | `%LOCALAPPDATA%\Proofline\usage_counts.jsonl` (one line per applied correction) |
+| Usage client state | `%LOCALAPPDATA%\Proofline\usage\proofline\` (random install id, report timing) |
 | Notification icon | `%LOCALAPPDATA%\Proofline\app-icon.png` |
 | Start with Windows | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Proofline` |
 | Notification name and icon | `HKCU\Software\Classes\AppUserModelId\PiratesIRC.Proofline` |
@@ -44,8 +47,10 @@ absent take their defaults, so a file containing only `server_url` is valid.
 | `hotkey_toggle` | string | `ctrl+alt+p` | Shortcuts | `""` turns the shortcut off. Modifiers: `ctrl`, `alt`, `shift`, `win`; keys: letters, digits, `f1`–`f24`, `space`, `enter`, `tab`, `esc`, … |
 | `hotkey_check_now` | string | `ctrl+alt+l` | Shortcuts | Must differ from `hotkey_toggle`. |
 | `debug_mode` | bool | `false` | Advanced › Debug mode | Adds short text samples to the log. |
+| `check_for_updates` | bool | `true` | Advanced › Check for updates | Asks GitHub whether a newer release exists (see below). Sends no text. |
+| `share_usage_counts` | bool | `true` | Advanced › Share anonymous usage counts | Sends the Corrections Applied total and a random id to plugin-stats.dpas.workers.dev for the README badges. Turning it off asks the server to delete this install's figures. See README › Anonymous usage counts. |
 | `paused_until` | string | `""` | Quick settings › Pause for 1 hour | Local time the pause ends, e.g. `2026-10-23T14:00:00`. Restored at startup; checking turns back on once it has passed. `""` when not paused. |
-| `shown_hints` | list of strings | `[]` | — | Setup tips already shown (`google-docs`, `java-access-bridge`, `firefox-update`). Remove an entry to see that tip again. |
+| `shown_hints` | list of strings | `[]` | (none) | Setup tips already shown (`google-docs`, `java-access-bridge`, `firefox-update`) and releases already announced (`update-<version>`). Remove an entry to see that tip or announcement again. |
 
 ### Default exclusions
 
@@ -102,4 +107,9 @@ and `%LOCALAPPDATA%\Proofline` does not, the folder is moved (or, if a file in i
   limit).
 - The focused element is polled every 300 ms.
 - When the server is unreachable, it is re-tested every 60 seconds.
+- Update check: one anonymous request to
+  `https://api.github.com/repos/PiratesIRC/Proofline/releases/latest` on a background thread at
+  start, then again only when the cached result is stale (24 hours after a success, 2 hours after
+  a failure, or after the installed version changed). Settings only reads the cached result. A new
+  release is announced once by a tray notification.
 - "Can't reach the server" is notified once per outage and at most once every 30 minutes.

@@ -49,6 +49,8 @@ immutable `Config` dataclass: every change creates a new object, saves it, then
 | Settings UI | `settings_window.py`, `settings_pages.py`, `ui_kit.py` (cards, switches, info bars, theme tokens), `list_editor.py`, `field_picker.py` |
 | Desktop integration | `integration.py`, `theme.py`, `autostart.py`, `hotkeys.py` |
 | Diagnostics | `diagnostics.py`, `probe.py` |
+| Usage counts | `usage.py` (ledger, Windows lock, reporting points), `usage_client.py` (vendored from plugin-stats, pinned in `scripts/client_manifest.json`; never edit) |
+| Update check | `update_check.py` (GitHub latest release, cached in `version_check.json`, background refresh) |
 | Rename migration | `legacy.py` (moves settings and removes registry entries from the LanguageTool Desktop name) |
 | Packaging | `packaging/Proofline.spec`, `packaging/build.ps1`, `packaging/make_icon.py` |
 

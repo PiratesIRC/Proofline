@@ -91,7 +91,7 @@ current state. Not measured: how often it fired before, because this PC has no a
 | Flyout footer | **Quit** has a border and stands out more than **More settings**; the gear opens the same window | Plain text link for Quit |
 | Field picker | Unstyled Qt; a large technical details box dominates; greyed-out buttons before any capture | `ui_kit` style, "Technical details" collapsed, only relevant buttons shown |
 | Setup tips | Tray balloons with raw URLs and literal backticks; marked as seen even if missed | Show in the flyout or a small window with a clickable link |
-| Advanced › About | No version, changelog or help link | Version, "What's new", Help / Troubleshooting link |
+| Advanced › About | No version, changelog or help link | Version, "What's new", Help / Troubleshooting link. Version, update status and a Releases link done 2026-10-24; help link open |
 | Checking page | Spin box suffix "2 word(s)" | "2 words" with correct plural |
 | General page | Server description wraps ("…sent to be / checked") | Shorter text or wider column |
 

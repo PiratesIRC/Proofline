@@ -43,6 +43,8 @@ def app(qapp, tmp_path):
         integration=MagicMock(),
         health=MagicMock(),
         quick=MagicMock(),
+        updates=MagicMock(current_info=MagicMock(return_value=None)),  # never reaches GitHub
+        usage=MagicMock(),  # never reaches the usage counter
     )
     lt_app.config_path = config_path
     return lt_app
@@ -201,3 +203,28 @@ def test_undo_removes_what_the_popup_added(app, handler, field, value):
     app._undo(field, value)
     assert value not in getattr(app.config, field)
     assert value not in getattr(load_config(app.config_path), field)
+
+
+def test_new_release_is_notified_once_across_restarts(app, monkeypatch):
+    shown = []
+    monkeypatch.setattr(app._tray, "showMessage", lambda *args: shown.append(args[1]))
+    app._on_newer_version("0.2.0")
+    app._on_newer_version("0.2.0")
+    assert len(shown) == 1 and "0.2.0" in shown[0]
+    assert "update-0.2.0" in load_config(app.config_path).shown_hints
+
+
+def test_applied_correction_is_counted_and_failed_one_is_not(app):
+    app._on_replace_finished(False, "Text changed; nothing replaced")
+    app._usage.on_correction_applied.assert_not_called()
+    app._on_replace_finished(True, "")
+    app._usage.on_correction_applied.assert_called_once()
+
+
+def test_usage_reporting_starts_and_follows_the_setting(app):
+    app.start()
+    app._usage.start.assert_called_once()
+    app._save(replace(app.config, share_usage_counts=False))
+    app._usage.on_setting_changed.assert_called_once()
+    app._quit()
+    app._usage.stop.assert_called_once()
