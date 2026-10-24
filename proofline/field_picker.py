@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from proofline.config import Config, saveable_signature
 from proofline.text_snapshot import FocusResult
+from proofline.ui_kit import apply_style, link_button
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,9 @@ IGNORED_REASONS = frozenset({"focus is in this app", "no focused element", "chec
 FILTER_REASON_PREFIXES = ("not a text control", "address bar", "numeric field", "sensitive field")
 NO_TEXT_PATTERNS = "none"
 DETAILS_HEIGHT = 130
+DETAILS_CLOSED = "Technical details ▾"
+DETAILS_OPEN = "Technical details ▴"
+VERDICT_STYLE = "QWidget#uiRoot QLabel#verdict { font-size: 16px; font-weight: 600; }"
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,7 @@ class FieldPickerDialog(QDialog):
 
     def __init__(self, config_provider: Callable[[], Config]) -> None:
         super().__init__()
+        self.setObjectName("uiRoot")
         self.setWindowTitle(WINDOW_TITLE)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
         self.setMinimumWidth(460)
@@ -115,15 +120,16 @@ class FieldPickerDialog(QDialog):
         self._result: FocusResult | None = None
 
         self._verdict = QLabel(WAITING)
-        font = self._verdict.font()
-        font.setBold(True)
-        self._verdict.setFont(font)
+        self._verdict.setObjectName("verdict")
         self._explanation = QLabel()
         self._explanation.setWordWrap(True)
         self._details = QPlainTextEdit()
         self._details.setReadOnly(True)
         self._details.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self._details.setFixedHeight(DETAILS_HEIGHT)
+        self._details.hide()
+        self._details_toggle = link_button(DETAILS_CLOSED)
+        self._details_toggle.clicked.connect(lambda: self._set_details_open(self._details.isHidden()))
 
         self._add_field_button = QPushButton("Always check this field")
         self._add_field_button.clicked.connect(self._add_field)
@@ -131,24 +137,35 @@ class FieldPickerDialog(QDialog):
         self._add_app_button.clicked.connect(self._add_app)
         self._copy_button = QPushButton("Copy details")
         self._copy_button.clicked.connect(self._copy_details)
+        self._copy_button.hide()
         close_button = QPushButton("Close")
         close_button.clicked.connect(self.close)
 
         buttons = QHBoxLayout()
-        for button in (self._add_field_button, self._add_app_button, self._copy_button):
+        for button in (self._add_field_button, self._add_app_button):
             buttons.addWidget(button)
         buttons.addStretch()
         buttons.addWidget(close_button)
+        details_row = QHBoxLayout()
+        details_row.addWidget(self._details_toggle)
+        details_row.addStretch()
+        details_row.addWidget(self._copy_button)
 
+        instructions = QLabel(INSTRUCTIONS)
+        instructions.setObjectName("cardDescription")
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(INSTRUCTIONS))
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.addWidget(instructions)
+        layout.addSpacing(6)
         layout.addWidget(self._verdict)
         layout.addWidget(self._explanation)
-        layout.addWidget(self._details)
         layout.addLayout(buttons)
+        layout.addLayout(details_row)
+        layout.addWidget(self._details)
         self._show_result(None, None)
 
     def open_picker(self) -> None:
+        apply_style(self, self._config_provider().tray_color, lambda _tokens: VERDICT_STYLE)
         self._show_result(None, None)
         self.show()
         self.raise_()
@@ -174,9 +191,20 @@ class FieldPickerDialog(QDialog):
         self._verdict.setText(assessment.verdict if assessment else WAITING)
         self._explanation.setText(assessment.explanation if assessment else "")
         self._details.setPlainText(details_text(result) if result else "")
-        self._add_field_button.setEnabled(bool(assessment and assessment.can_add_field))
-        self._add_app_button.setEnabled(bool(assessment and assessment.can_add_app))
+        for button, wanted in ((self._add_field_button, assessment and assessment.can_add_field),
+                               (self._add_app_button, assessment and assessment.can_add_app)):
+            button.setEnabled(bool(wanted))
+            button.setVisible(bool(wanted))  # only the actions that apply to this field
         self._copy_button.setEnabled(result is not None)
+        self._details_toggle.setVisible(result is not None)
+        if result is None:
+            self._set_details_open(False)
+
+    def _set_details_open(self, open_: bool) -> None:
+        self._details.setVisible(open_)
+        self._copy_button.setVisible(open_)
+        self._details_toggle.setText(DETAILS_OPEN if open_ else DETAILS_CLOSED)
+        self.adjustSize()
 
     def _add_field(self) -> None:
         if self._result is not None:

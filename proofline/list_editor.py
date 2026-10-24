@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -9,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -28,13 +31,15 @@ class _CompactList(QListWidget):
 class StringListEditor(QWidget):
     """A titled list with an input box, Add, and Remove. Duplicates (ignoring case) are skipped.
 
-    items_changed fires when the user adds or removes entries (not on set_items).
+    items_changed fires when the user adds or removes entries (not on set_items). label, if
+    given, turns a stored value into the text shown; items() always returns the values.
     """
 
     items_changed = pyqtSignal()
 
-    def __init__(self, title: str, placeholder: str) -> None:
+    def __init__(self, title: str, placeholder: str, label: Callable[[str], str] | None = None) -> None:
         super().__init__()
+        self._label = label or (lambda value: value)
         self._list = _CompactList()
         self._list.setMinimumHeight(LIST_MIN_HEIGHT)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -63,18 +68,30 @@ class StringListEditor(QWidget):
         layout.addLayout(row)
 
     def items(self) -> tuple[str, ...]:
-        return tuple(self._list.item(i).text() for i in range(self._list.count()))
+        return tuple(self._list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self._list.count()))
 
     def set_items(self, items: tuple[str, ...]) -> None:
         self._list.clear()
-        self._list.addItems(items)
+        for value in items:
+            self._append(value)
+
+    def set_label(self, label: Callable[[str], str]) -> None:
+        """Change how values are shown (e.g. when the names they map to changed)."""
+        self._label = label
+        self.set_items(self.items())
+
+    def _append(self, value: str) -> None:
+        item = QListWidgetItem(self._label(value))
+        item.setData(Qt.ItemDataRole.UserRole, value)
+        item.setToolTip(value)
+        self._list.addItem(item)
 
     def add_item(self, text: str) -> bool:
         """Add a stripped, non-empty, not-yet-listed entry. Returns whether it was added."""
         entry = text.strip()
         if not entry or entry.casefold() in {item.casefold() for item in self.items()}:
             return False
-        self._list.addItem(entry)
+        self._append(entry)
         self.items_changed.emit()
         return True
 

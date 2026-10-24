@@ -2,10 +2,18 @@ from dataclasses import replace
 
 import pytest
 from PyQt6.QtCore import QPoint, QRect, QSize
-from PyQt6.QtWidgets import QMenu, QPushButton
+from PyQt6.QtWidgets import QPushButton
 
 from proofline.config import LANGUAGES
-from proofline.tray_flyout import FlyoutState, TrayFlyout, flyout_position
+from proofline.tray_flyout import (
+    CHECKING_OFF,
+    CHECKING_ON,
+    PAUSE_HOUR,
+    PAUSE_TODAY,
+    FlyoutState,
+    TrayFlyout,
+    flyout_position,
+)
 
 BASE = FlyoutState(
     enabled=True,
@@ -20,10 +28,8 @@ AVAILABLE = QRect(0, 0, 1920, 1040)
 BOTTOM_ICON = QRect(1850, 1050, 24, 24)
 FLYOUT_SIZE = QSize(360, 400)
 SIGNAL_NAMES = (
-    "enabled_toggled",
+    "checking_mode_chosen",
     "picky_toggled",
-    "pause_requested",
-    "resume_requested",
     "language_chosen",
     "disable_app_requested",
     "enable_app_requested",
@@ -78,20 +84,19 @@ def test_toggle_tiles_reflect_checked_and_subtitles(flyout):
     assert checking.text().endswith("Off")
     picky = _tile(flyout, "Picky mode")
     assert picky.isChecked()
-    assert picky.text().endswith("On")
+    assert picky.text() == "Picky mode\nExtra style tips: On"
 
 
-def test_pause_tile_reads_pause_when_not_paused(flyout):
-    tile = _tile(flyout, "Pause for 1 hour")
-    assert tile.text().endswith("Ctrl+Alt+P to toggle")
-    assert not tile.isCheckable()
+def test_checking_tile_shows_a_pause_with_its_end(flyout):
+    flyout.set_state(replace(BASE, enabled=False, paused_until="2:45 PM"))
+
+    tile = _tile(flyout, "Checking")
+    assert tile.text() == "Checking\nPaused until 2:45 PM"
+    assert not tile.isChecked()
 
 
-def test_pause_tile_reads_paused_with_time(flyout):
-    flyout.set_state(replace(BASE, paused_until="2:45 PM"))
-
-    tile = _tile(flyout, "Paused")
-    assert tile.text() == "Paused\nUntil 2:45 PM\nclick to resume"
+def test_there_is_no_separate_pause_tile(flyout):
+    assert len(flyout.findChildren(QPushButton, "tile")) == 3
 
 
 def test_language_tile_shows_display_name(flyout):
@@ -177,13 +182,40 @@ def test_set_state_emits_no_signals(qtbot, flyout):
 # ----- user actions emit the right signals ------------------------------------
 
 
-def test_checking_tile_emits_toggle_and_updates_subtitle(flyout):
-    received = _record(flyout.enabled_toggled)
+def _checking_actions(flyout):
+    return {action.data(): action for action in flyout.checking_menu.actions() if action.data()}
+
+
+@pytest.mark.parametrize(
+    ("enabled", "paused_until", "checked"),
+    [(True, "", CHECKING_ON), (False, "", CHECKING_OFF), (False, "2:45 PM", None)],
+)
+def test_checking_menu_marks_the_current_mode(flyout, enabled, paused_until, checked):
+    flyout.set_state(replace(BASE, enabled=enabled, paused_until=paused_until))
+
+    actions = _checking_actions(flyout)
+    assert list(actions) == [CHECKING_ON, PAUSE_HOUR, PAUSE_TODAY, CHECKING_OFF]
+    assert [mode for mode, action in actions.items() if action.isChecked()] == ([checked] if checked else [])
+
+
+def test_clicking_the_checking_tile_opens_the_menu_without_toggling(flyout, monkeypatch):
+    opened = []
+    monkeypatch.setattr(flyout.checking_menu, "popup", lambda point: opened.append(point))
+    received = _record(flyout.checking_mode_chosen)
 
     _tile(flyout, "Checking").click()
 
-    assert received == [(False,)]
-    assert _tile(flyout, "Checking").text().endswith("Off")
+    assert opened and received == []
+    assert _tile(flyout, "Checking").isChecked()
+
+
+@pytest.mark.parametrize("mode", [CHECKING_ON, PAUSE_HOUR, PAUSE_TODAY, CHECKING_OFF])
+def test_choosing_a_checking_mode_emits_it(flyout, mode):
+    received = _record(flyout.checking_mode_chosen)
+
+    _checking_actions(flyout)[mode].trigger()
+
+    assert received == [(mode,)]
 
 
 def test_picky_tile_emits_toggle(flyout):
@@ -194,29 +226,8 @@ def test_picky_tile_emits_toggle(flyout):
     assert received == [(True,)]
 
 
-def test_pause_tile_emits_pause_when_not_paused(flyout):
-    paused = _record(flyout.pause_requested)
-    resumed = _record(flyout.resume_requested)
-
-    _tile(flyout, "Pause for 1 hour").click()
-
-    assert paused == [()]
-    assert resumed == []
-
-
-def test_paused_tile_emits_resume(flyout):
-    flyout.set_state(replace(BASE, paused_until="2:45 PM"))
-    paused = _record(flyout.pause_requested)
-    resumed = _record(flyout.resume_requested)
-
-    _tile(flyout, "Paused").click()
-
-    assert resumed == [()]
-    assert paused == []
-
-
 def test_language_menu_lists_every_language_with_current_checked(flyout):
-    menu = flyout.findChildren(QMenu)[0]
+    menu = flyout.language_menu
     actions = menu.actions()
 
     assert [action.data() for action in actions] == list(LANGUAGES)
@@ -226,7 +237,7 @@ def test_language_menu_lists_every_language_with_current_checked(flyout):
 
 def test_choosing_language_emits_and_updates_subtitle(flyout):
     received = _record(flyout.language_chosen)
-    menu = flyout.findChildren(QMenu)[0]
+    menu = flyout.language_menu
     spanish = next(action for action in menu.actions() if action.data() == "es")
 
     spanish.trigger()
@@ -387,3 +398,15 @@ def test_flyout_requests_rounded_corners(qtbot, monkeypatch):
     qtbot.addWidget(widget)
 
     assert calls == [widget]
+
+
+def test_tiles_are_tall_enough_for_two_lines(flyout):
+    """The style sheet's button min-height used to override setMinimumHeight, clipping tile text."""
+    flyout.show_at(QRect(1800, 1050, 24, 24), QRect(0, 0, 1920, 1040))
+    for tile in flyout.findChildren(QPushButton, "tile"):
+        assert tile.height() >= 64
+        assert tile.height() >= 2 * tile.fontMetrics().height()
+
+
+def test_quit_is_a_plain_link(flyout):
+    assert _button(flyout, "Quit").objectName() == "linkButton"

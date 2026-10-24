@@ -75,7 +75,7 @@ def test_opening_loads_values_without_saving(window, store):
         (lambda w: w.checking._picky.setChecked(True), "picky", True),
         (lambda w: w.checking._words.add_item("Dispatcharr"), "personal_dictionary", ("Dispatcharr",)),
         (lambda w: w.checking._rules.add_item("WHITESPACE_RULE"), "disabled_rules", ("WHITESPACE_RULE",)),
-        (lambda w: w.checking._categories.add_item("style"), "disabled_categories", ("STYLE",)),
+        (lambda w: w.checking._categories.box("STYLE").click(), "disabled_categories", ("STYLE",)),
         (lambda w: w.apps._lists["always_check_apps"][1].add_item("erp.exe"), "always_check_apps", ("erp.exe",)),
         (lambda w: w.appearance._theme.setCurrentIndex(w.appearance._theme.findData("dark")), "theme", "dark"),
         (lambda w: w.appearance._tray_color.setCurrentIndex(1), "tray_color", "#1565c0"),
@@ -159,8 +159,8 @@ def test_save_errors_show_in_error_bar(window, store, error, text):
     [("ctrl+alt+p", "ctrl+alt+l", True), ("", "CTRL+ALT+L", True), ("ctrl+alt", "", False), ("ctrl+alt+p", "ctrl+alt+p", False)],
 )
 def test_shortcuts_apply_with_validation(window, store, toggle, check_now, ok):
-    window.shortcuts._edits["hotkey_toggle"].setText(toggle)
-    window.shortcuts._edits["hotkey_check_now"].setText(check_now)
+    window.shortcuts._edits["hotkey_toggle"].set_hotkey(toggle)
+    window.shortcuts._edits["hotkey_check_now"].set_hotkey(check_now)
     window.shortcuts.apply_shortcuts()
     if ok:
         assert (store.config.hotkey_toggle, store.config.hotkey_check_now) == (toggle, check_now.lower())
@@ -321,3 +321,56 @@ def test_usage_sharing_switch_appears_once_and_names_what_is_sent(window):
     assert len(cards) == 1
     text = cards[0].description_label.text()
     assert "plugin-stats.dpas.workers.dev" in text and "No text you type" in text
+
+
+@pytest.mark.parametrize("tokens", [LIGHT, DARK])
+def test_links_use_the_readable_accent(window, monkeypatch, tokens):
+    from PyQt6.QtGui import QPalette
+
+    from proofline import ui_kit
+
+    monkeypatch.setattr(ui_kit, "current_tokens", lambda: tokens)
+    window.refresh_style()
+    link = window.advanced.attribution_link.palette().color(QPalette.ColorRole.Link).name()
+    assert link == ui_kit.readable_accent(window._config_provider().tray_color, tokens)
+
+
+def test_check_now_button_requests_a_check_and_shows_progress(qtbot, window):
+    with qtbot.waitSignal(window.update_check_requested):
+        window.advanced.check_now_button.click()
+    assert "Checking for updates" in window.advanced.about_card.description_label.text()
+
+
+def test_building_settings_shows_no_stray_windows(qtbot, store, tmp_path):
+    """Labels made visible before they had a parent flashed as tiny top-level windows at startup."""
+    from PyQt6.QtCore import QEvent, QObject
+    from PyQt6.QtWidgets import QApplication, QWidget
+
+    shown = []
+
+    class Watch(QObject):
+        def eventFilter(self, obj, event):
+            if event.type() == QEvent.Type.Show and isinstance(obj, QWidget) and obj.isWindow():
+                shown.append(type(obj).__name__)
+            return False
+
+    watch = Watch()
+    QApplication.instance().installEventFilter(watch)
+    try:
+        w = SettingsWindow(lambda: store.config, store.save, tmp_path / "logs")
+        qtbot.addWidget(w)
+    finally:
+        QApplication.instance().removeEventFilter(watch)
+    assert shown == []
+
+
+def test_fix_first_shortcut_has_a_recorder(window):
+    assert window.shortcuts._edits["hotkey_fix_first"].hotkey() == "ctrl+alt+j"
+
+
+def test_about_card_has_a_help_link(window):
+    assert "TROUBLESHOOTING" in window.advanced.help_link.text()
+
+
+def test_about_card_has_a_whats_new_link(window):
+    assert "CHANGELOG.md" in window.advanced.changelog_link.text()

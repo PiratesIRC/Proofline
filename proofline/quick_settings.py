@@ -15,7 +15,14 @@ from PyQt6.QtGui import QGuiApplication
 from proofline.config import Config
 from proofline.text_snapshot import FocusResult
 from proofline.tray import TrayIcon
-from proofline.tray_flyout import FlyoutState, TrayFlyout
+from proofline.tray_flyout import (
+    CHECKING_OFF,
+    CHECKING_ON,
+    PAUSE_HOUR,
+    PAUSE_TODAY,
+    FlyoutState,
+    TrayFlyout,
+)
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +32,10 @@ IGNORED_REASONS = frozenset({"", "focus is in this app", "checking paused", "no 
 STATUS_CHECKED = "Being checked"
 STATUS_OFF = "Turned off here"
 STATUS_NO_FIELD = "No text box focused"
+# The taskbar, tray, desktop, Start and Search. Clicking the tray icon focuses one of these,
+# so outside a text box they never replace the app shown in the flyout's "Current app" card.
+SHELL_PROCESSES = frozenset({"explorer.exe", "shellexperiencehost.exe", "startmenuexperiencehost.exe",
+                             "searchhost.exe", "searchapp.exe"})
 
 
 def connected_message(server_url: str) -> str:
@@ -32,7 +43,13 @@ def connected_message(server_url: str) -> str:
 
 
 def pause_label(until: datetime) -> str:
+    if (until.hour, until.minute) == (0, 0):
+        return "midnight"
     return until.strftime("%I:%M %p").lstrip("0")
+
+
+def end_of_today(now: datetime) -> datetime:
+    return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 class QuickSettings(QObject):
@@ -66,10 +83,8 @@ class QuickSettings(QObject):
 
     def _connect_flyout(self) -> None:
         f = self.flyout
-        f.enabled_toggled.connect(self._tray.set_enabled)
+        f.checking_mode_chosen.connect(self.set_checking_mode)
         f.picky_toggled.connect(lambda on: self._update(picky=on))
-        f.pause_requested.connect(self.pause)
-        f.resume_requested.connect(self.resume)
         f.language_chosen.connect(lambda code: self._update(language=code))
         f.disable_app_requested.connect(self._disable_app)
         f.enable_app_requested.connect(self._enable_app)
@@ -111,6 +126,8 @@ class QuickSettings(QObject):
     def on_focus_changed(self, result: FocusResult) -> None:
         if not result.process_name or result.reason in IGNORED_REASONS:
             return
+        if result.snapshot is None and result.process_name.casefold() in SHELL_PROCESSES:
+            return
         if result.snapshot is not None:
             status = STATUS_CHECKED
         elif result.reason.startswith("disabled for"):
@@ -130,8 +147,21 @@ class QuickSettings(QObject):
             self._cancel_pause()
         self.refresh()
 
-    def pause(self) -> None:
-        until = self._clock() + PAUSE
+    def set_checking_mode(self, mode: str) -> None:
+        """The flyout's Checking menu: on, pause for an hour, pause until midnight, or off."""
+        if mode == PAUSE_HOUR:
+            self.pause()
+        elif mode == PAUSE_TODAY:
+            self.pause(end_of_today(self._clock()))
+        elif mode == CHECKING_ON:
+            self.resume()
+        elif mode == CHECKING_OFF:
+            self._cancel_pause()
+            self._tray.set_enabled(False)
+            self.refresh()
+
+    def pause(self, until: datetime | None = None) -> None:
+        until = until or self._clock() + PAUSE
         self._start_pause(until)
         log.info("Checking paused until %s", pause_label(until))
         self._tray.set_enabled(False)

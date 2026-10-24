@@ -2,6 +2,46 @@
 
 All notable changes to this project.
 
+## 0.2.0 (2026-10-24)
+
+### New
+- First-run welcome window on a fresh install: pick and test a server, see what the badge states
+  mean, choose Start with Windows.
+- Portable version (`Proofline-<version>-portable.zip`, settings in a `data` folder next to the
+  exe) and a per-user installer (`Proofline-<version>-setup.exe`, no administrator rights).
+- Tray quick settings: one **Checking** tile with On / Pause for 1 hour / Pause for the rest of
+  today / Off, replacing the separate Pause tile. Picky mode reads "Extra style tips".
+- New shortcut **Ctrl+Alt+J** applies the first suggestion for the current text box.
+- Settings › Advanced › **Check now** checks for a newer release straight away; **Help** and
+  **What's new** links open the troubleshooting guide and this changelog.
+- Readable names in Settings: turned-off rules by name, categories as checkboxes, "Pick a running
+  app…" for the app lists, custom fields as a short sentence, shortcuts recorded by pressing the
+  keys and shown in capitals (CTRL+ALT+P).
+- The turned-off rules and categories card links to LanguageTool's rule browser (for the chosen
+  language) and its list of categories.
+- Setup tips and the new-version notice open their page when the notification is clicked.
+- The field picker ("Add a text field…") is styled like the app, shows only the buttons that apply,
+  and folds the technical details away.
+
+### Fixed
+- Small windows no longer flash on screen when the app starts.
+- The flyout's tile text was clipped at 150% and 200% display scaling.
+- The flyout's "Current app" card showed the taskbar ("No text box focused") after clicking the
+  tray icon; it now keeps the app you were last typing in.
+- Links in dark mode were dark blue on dark grey; they use the accent colour now. The flyout's
+  settings gear was drawn as a colour emoji.
+- The welcome window warns and asks before using plain `http://` to another computer, like
+  Settings.
+
+### License
+- Proofline is now free software under the GNU General Public License version 3 (`LICENSE`).
+  Release builds include `LICENSE.txt` and `THIRD-PARTY-NOTICES.txt`. The README has a Disclaimer
+  section on LanguageTool's trademark and terms.
+
+### Accessibility
+- The badge is larger (24 px disc) and has a name screen readers announce, such as "Proofline: 3
+  issues. Click to see them."
+
 ## 0.1.0 (2026-10-24)
 
 First release.

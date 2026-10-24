@@ -20,7 +20,7 @@ from proofline.tray import TrayIcon
 log = logging.getLogger(__name__)
 
 # Hotkey action name -> Config field holding its key combination.
-HOTKEY_ACTIONS = {"toggle": "hotkey_toggle", "check_now": "hotkey_check_now"}
+HOTKEY_ACTIONS = {"toggle": "hotkey_toggle", "check_now": "hotkey_check_now", "fix_first": "hotkey_fix_first"}
 
 
 class DesktopIntegration(QObject):

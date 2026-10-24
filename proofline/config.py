@@ -1,7 +1,8 @@
 """Load, validate, and save user settings in config.json.
 
 Settings and logs live under %LOCALAPPDATA%\\Proofline so they are
-never synced by OneDrive along with the project folder.
+never synced by OneDrive along with the project folder. The portable build (a
+portable.txt file beside Proofline.exe) keeps them in a data folder beside the exe.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import json
 import logging
 import os
 import re
+import sys
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime
 from pathlib import Path
@@ -17,10 +19,29 @@ from urllib.parse import urlparse, urlunparse
 
 log = logging.getLogger(__name__)
 
-APP_DATA_DIR = (
-    Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-    / "Proofline"
-)
+APP_DIR_NAME = "Proofline"
+PORTABLE_MARKER = "portable.txt"  # shipped beside Proofline.exe in the portable zip only
+PORTABLE_DATA_DIR_NAME = "data"
+
+
+def app_data_dir(
+    frozen: bool | None = None, executable: Path | None = None, local_app_data: str | None = None,
+) -> tuple[Path, bool]:
+    r"""(folder for settings, logs and usage files, is_portable).
+
+    A packaged build with portable.txt beside its exe keeps everything in <exe folder>\data;
+    any other run uses %LOCALAPPDATA%\Proofline.
+    """
+    frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    if frozen:
+        exe_dir = Path(executable or sys.executable).resolve().parent
+        if (exe_dir / PORTABLE_MARKER).is_file():
+            return exe_dir / PORTABLE_DATA_DIR_NAME, True
+    base = local_app_data if local_app_data is not None else os.environ.get("LOCALAPPDATA")
+    return Path(base or Path.home() / "AppData" / "Local") / APP_DIR_NAME, False
+
+
+APP_DATA_DIR, IS_PORTABLE = app_data_dir()
 CONFIG_PATH = APP_DATA_DIR / "config.json"
 
 # 127.0.0.1, not localhost: Windows tries ::1 first, and a server listening on IPv4 only
@@ -49,13 +70,15 @@ DEFAULT_MIN_WORDS = 2
 MIN_WORDS_RANGE = (1, 10)
 DEFAULT_HOTKEY_TOGGLE = "ctrl+alt+p"
 DEFAULT_HOTKEY_CHECK_NOW = "ctrl+alt+l"
+DEFAULT_HOTKEY_FIX_FIRST = "ctrl+alt+j"
 BOOL_FIELDS = ("enabled", "debug_mode", "badge_always_visible", "picky", "start_with_windows", "check_for_updates",
-               "share_usage_counts")
+               "share_usage_counts", "welcome_shown")
 LIST_FIELDS = (
     "disabled_apps",
     "disabled_windows",
     "personal_dictionary",
     "disabled_rules",
+    "rule_labels",
     "disabled_categories",
     "shown_hints",
     "always_check_apps",
@@ -64,7 +87,7 @@ LIST_FIELDS = (
 FIELD_SIGNATURE_SEPARATOR = "|"
 FIELD_SIGNATURE_PARTS = 3
 ANY_CLASS = "*"
-HOTKEY_FIELDS = ("hotkey_toggle", "hotkey_check_now")
+HOTKEY_FIELDS = ("hotkey_toggle", "hotkey_check_now", "hotkey_fix_first")
 
 # Recommended exclusions: places where checking is a security risk or just noise.
 # They are the defaults for new installs and can be re-added from Settings.
@@ -127,6 +150,24 @@ def saveable_signature(signature: str) -> str:
     return field_signature(app, control_type, class_name)
 
 
+RULE_LABEL_SEPARATOR = "="
+
+
+def rule_label(config: Config, rule_id: str) -> str:
+    """How Settings shows a turned-off rule: its name with the id, or the id alone."""
+    for entry in config.rule_labels:
+        key, _, name = entry.partition(RULE_LABEL_SEPARATOR)
+        if key == rule_id and name:
+            return f"{name} ({rule_id})"
+    return rule_id
+
+
+def with_rule_label(config: Config, rule_id: str, name: str) -> Config:
+    """config with the rule's display name recorded (one entry per rule; the latest wins)."""
+    kept = tuple(e for e in config.rule_labels if e.partition(RULE_LABEL_SEPARATOR)[0] != rule_id)
+    return replace(config, rule_labels=(*kept, f"{rule_id}{RULE_LABEL_SEPARATOR}{name.strip()}"))
+
+
 class ConfigError(ValueError):
     """Raised when a setting has an invalid value."""
 
@@ -148,6 +189,7 @@ class Config:
     start_with_windows: bool = False
     hotkey_toggle: str = DEFAULT_HOTKEY_TOGGLE
     hotkey_check_now: str = DEFAULT_HOTKEY_CHECK_NOW
+    hotkey_fix_first: str = DEFAULT_HOTKEY_FIX_FIRST  # keyboard alternative to clicking a suggestion
     theme: str = "auto"
     tray_color: str = DEFAULT_TRAY_COLOR
     min_words: int = DEFAULT_MIN_WORDS
@@ -155,8 +197,10 @@ class Config:
     always_check_apps: tuple[str, ...] = ()
     custom_fields: tuple[str, ...] = ()  # field_signature() strings
     paused_until: str = ""  # ISO local time a timed pause ends; "" when not paused
+    rule_labels: tuple[str, ...] = ()  # "RULE_ID=Name" for rules turned off from the popup
     check_for_updates: bool = True  # ask GitHub daily whether a newer release exists
     share_usage_counts: bool = True  # anonymous Corrections Applied total for the README badges
+    welcome_shown: bool = False  # the first-run welcome window was finished or closed
 
     def __repr__(self) -> str:
         values = ", ".join(

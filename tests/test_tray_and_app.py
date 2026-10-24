@@ -228,3 +228,48 @@ def test_usage_reporting_starts_and_follows_the_setting(app):
     app._usage.on_setting_changed.assert_called_once()
     app._quit()
     app._usage.stop.assert_called_once()
+
+
+def test_check_now_forces_an_update_check(app):
+    app._settings.update_check_requested.emit()
+    app._updates.check_now.assert_called_with(force=True)
+
+
+def _app_at(path):
+    return LanguageToolApp(MagicMock(), path, monitor=MagicMock(), overlay=MagicMock(), integration=MagicMock(),
+                           health=MagicMock(), quick=MagicMock(),
+                           updates=MagicMock(current_info=MagicMock(return_value=None)), usage=MagicMock())
+
+
+def test_fresh_install_shows_the_welcome_once(qtbot, tmp_path):
+    fresh = _app_at(tmp_path / "config.json")
+    fresh.start()
+    assert fresh._welcome is not None and fresh._welcome.isVisible()
+    fresh._welcome.close()
+    assert load_config(tmp_path / "config.json").welcome_shown
+
+
+def test_existing_settings_skip_the_welcome(app):
+    app.start()
+    assert app._welcome is None
+
+
+def test_clicking_a_notification_opens_its_link(app, monkeypatch):
+    from proofline.setup_hints import SetupHint
+
+    opened, shown = [], []
+    monkeypatch.setattr("proofline.app.QDesktopServices.openUrl", lambda url: opened.append(url.toString()))
+    monkeypatch.setattr(app._tray, "showMessage", lambda *args: shown.append(args[1]))
+    app._on_setup_hint(SetupHint("google-docs", "Turn on screen reader support", "Press Ctrl+Alt+Z.", "https://help.example"))
+    assert "Click for details" in shown[-1]
+    app._tray.messageClicked.emit()
+    assert opened == ["https://help.example"]
+    app._notify("Could not connect")  # a plain warning has no link
+    app._tray.messageClicked.emit()
+    assert opened == ["https://help.example"]
+
+
+def test_fix_first_shortcut_applies_the_first_suggestion(app):
+    assert app.config.hotkey_fix_first == "ctrl+alt+j"
+    app._on_hotkey("fix_first")
+    app._overlay.apply_first_suggestion.assert_called_once()

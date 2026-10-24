@@ -293,3 +293,13 @@ def test_disabling_the_app_leaves_only_an_undo_notice(qtbot, harness):
         harness.popup._on_undo()
     assert undo.args == ["disabled_apps", "notepad.exe"]
     assert not harness.popup.isVisible()
+
+
+def test_apply_first_suggestion_fixes_the_first_issue(qtbot, harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    assert not harness.controller.apply_first_suggestion()  # nothing checked yet
+    harness.controller.on_checked(snap, (Match(0, 4, "m", "", (), "R0", "", "This"), MATCH))
+    with qtbot.waitSignal(harness.controller.replace_requested) as blocker:
+        assert harness.controller.apply_first_suggestion()
+    assert (blocker.args[0].error_text, blocker.args[0].replacement) == ("are", "is")  # first one with a fix

@@ -165,3 +165,15 @@ def test_hint_keys_cover_every_rule(monkeypatch: pytest.MonkeyPatch) -> None:
         _hint(process="firefox.exe"),
     }
     assert {hint.key for hint in produced if hint is not None} == set(HINT_KEYS)
+
+
+@pytest.mark.parametrize("key", ["google-docs", "java-access-bridge", "firefox-update"])
+def test_tip_text_has_no_raw_urls_or_markdown(key):
+    from proofline import setup_hints
+
+    hint = {"google-docs": setup_hints._google_docs_hint("chrome.exe", "Doc - Google Docs"),
+            "java-access-bridge": setup_hints._java_hint("javaw.exe", ""),
+            "firefox-update": setup_hints.SetupHint(setup_hints.KEY_FIREFOX_UPDATE, "", setup_hints.FIREFOX_MESSAGE,
+                                                    setup_hints.FIREFOX_URL)}[key]
+    assert "http" not in hint.message and "`" not in hint.message
+    assert hint.url.startswith("https://")

@@ -46,6 +46,11 @@ GOOGLE_DOCS_URL = "https://support.google.com/docs/answer/6282736"
 JAVA_ACCESS_BRIDGE_URL = (
     "https://docs.oracle.com/en/java/javase/21/docs/specs/man/jabswitch.html"
 )
+FIREFOX_URL = "https://www.mozilla.org/firefox/new/"
+FIREFOX_MESSAGE = (
+    f"This Firefox version cannot share text with other programs. Update Firefox to version "
+    f"{FIREFOX_UIA_MIN_MAJOR} or newer, then restart it."
+)
 
 
 @dataclass(frozen=True)
@@ -54,7 +59,8 @@ class SetupHint:
 
     key: str
     title: str
-    message: str
+    message: str  # plain text for a notification: no URLs, no markup
+    url: str = ""  # opened when the notification is clicked
 
 
 def hint_for(
@@ -110,9 +116,9 @@ def _google_docs_hint(process: str, window_title: str) -> SetupHint | None:
         title="Turn on screen reader support in Google Docs",
         message=(
             "In the document, press Ctrl+Alt+Z, or choose Tools > Accessibility > "
-            "Turn on screen reader support. "
-            f"More details: {GOOGLE_DOCS_URL}"
+            "Turn on screen reader support."
         ),
+        url=GOOGLE_DOCS_URL,
     )
 
 
@@ -122,10 +128,8 @@ def _java_hint(process: str, class_name: str) -> SetupHint | None:
     return SetupHint(
         key=KEY_JAVA_ACCESS_BRIDGE,
         title="Turn on Java Access Bridge",
-        message=(
-            "Open Command Prompt, run `jabswitch -enable`, then restart the Java app. "
-            f"More details: {JAVA_ACCESS_BRIDGE_URL}"
-        ),
+        message="Open Command Prompt, run jabswitch -enable, then restart the Java app.",
+        url=JAVA_ACCESS_BRIDGE_URL,
     )
 
 
@@ -138,9 +142,6 @@ def _firefox_hint(process: str, exe_path: str) -> SetupHint | None:
     return SetupHint(
         key=KEY_FIREFOX_UPDATE,
         title="Update Firefox",
-        message=(
-            "This Firefox version cannot expose text to the grammar checker. "
-            f"Update Firefox to version {FIREFOX_UIA_MIN_MAJOR} or newer, "
-            "then restart it."
-        ),
+        message=FIREFOX_MESSAGE,
+        url=FIREFOX_URL,
     )

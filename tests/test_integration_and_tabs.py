@@ -53,7 +53,7 @@ def test_startup_applies_everything_and_reports_taken_shortcut(integration):
     integration.apply(Config(theme="dark", tray_color="#1565c0"))
     assert integration.themes == ["dark"]
     integration.tray.set_color.assert_called_once_with("#1565c0")
-    assert integration.fake_hotkeys.registered == {"toggle": "ctrl+alt+p"}
+    assert integration.fake_hotkeys.registered == {"toggle": "ctrl+alt+p", "fix_first": "ctrl+alt+j"}
     assert any("ctrl+alt+l" in note for note in integration.notes)
     integration.autostart.set_enabled.assert_not_called()  # registry already matches config
 
@@ -134,7 +134,7 @@ def test_popup_actions_emit_word_and_rule(qtbot):
     with qtbot.waitSignal(h.controller.disable_rule_requested) as rule:
         h.popup.disable_rule_requested.emit(GRAMMAR)
     assert word.args == ["Thsi"]
-    assert rule.args == ["PLURAL_VERB"]
+    assert rule.args == ["PLURAL_VERB", "Grammar"]
 
 
 def test_add_to_dictionary_only_offered_for_spelling(qtbot):

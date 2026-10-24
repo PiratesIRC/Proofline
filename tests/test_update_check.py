@@ -181,3 +181,27 @@ def test_checker_does_nothing_when_turned_off(tmp_path):
     checker = UpdateChecker(lambda: False, "0.1.0", tmp_path / "c.json", check=lambda *a: calls.append(a))
     checker.check_now()
     assert calls == []
+
+
+def test_forced_check_ignores_a_fresh_cache(tmp_path):
+    path, calls = tmp_path / "version_check.json", []
+    check_for_update("0.1.0", path, NOW, fetcher("0.1.0", calls))
+    info = check_for_update("0.1.0", path, NOW + 60, fetcher("0.2.0", calls), force=True)
+    assert len(calls) == 2 and info.status == "outdated"
+
+
+def test_manual_check_runs_even_when_automatic_checks_are_off(qtbot, tmp_path):
+    from proofline.update_check import UpdateChecker
+
+    seen = []
+
+    def check(current, path, force=False):
+        seen.append(force)
+        return VersionInfo("current", "You are up to date (v0.1.0)", "0.1.0")
+
+    checker = UpdateChecker(lambda: False, "0.1.0", tmp_path / "c.json", check=check)
+    checker.check_now()
+    assert seen == []
+    with qtbot.waitSignal(checker.checked):
+        checker.check_now(force=True)
+    assert seen == [True]

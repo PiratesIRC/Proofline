@@ -8,6 +8,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import os
+from collections.abc import Callable
 from ctypes import wintypes
 from functools import lru_cache
 
@@ -65,3 +66,44 @@ def file_description(exe_path: str) -> str:
     except pywintypes.error as exc:
         log.debug("No version information in %s: %s", exe_path, exc)
     return ""
+
+
+EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+TITLE_CHARS = 256
+
+
+def visible_windows() -> list[tuple[int, str]]:
+    """(process id, title) of every visible top-level window."""
+    user32 = ctypes.windll.user32
+    found: list[tuple[int, str]] = []
+
+    def collect(hwnd: int, _lparam: int) -> bool:
+        if user32.IsWindowVisible(hwnd):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            title = ctypes.create_unicode_buffer(TITLE_CHARS)
+            user32.GetWindowTextW(hwnd, title, TITLE_CHARS)
+            found.append((pid.value, title.value))
+        return True
+
+    user32.EnumWindows(EnumWindowsProc(collect), 0)
+    return found
+
+
+def running_apps(
+    windows: Callable[[], list[tuple[int, str]]] = visible_windows,
+    path_of: Callable[[int], str] = process_path,
+    describe: Callable[[str], str] = file_description,
+    own_pid: int | None = None,
+) -> list[tuple[str, str]]:
+    """(exe name, display name) of each app with a visible, titled window, sorted by name."""
+    own_pid = os.getpid() if own_pid is None else own_pid
+    apps: dict[str, str] = {}
+    for pid, title in windows():
+        if pid == own_pid or not title.strip():
+            continue
+        path = path_of(pid) or ""
+        exe = os.path.basename(path)
+        if exe and exe.casefold() not in {a.casefold() for a in apps}:
+            apps[exe.lower()] = describe(path) or exe.lower()
+    return sorted(apps.items(), key=lambda item: item[1].casefold())

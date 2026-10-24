@@ -117,3 +117,20 @@ def test_badge_edge_contrasts_with_white_and_black_fields(make_badge, background
     row = BADGE_SIZE // 2
     contrasts = [abs(image.pixelColor(x, row).lightness() - bg) for x in range(BADGE_SIZE // 2)]
     assert max(contrasts) > 120
+
+
+def test_badge_disc_meets_the_24_px_target_size():
+    from proofline.badge import DISC_DIAMETER
+
+    assert DISC_DIAMETER >= 24 and BADGE_SIZE > DISC_DIAMETER
+
+
+def test_badge_has_an_accessible_name_that_follows_its_state(qtbot):
+    from proofline.badge import BadgeState, BadgeWidget
+
+    badge = BadgeWidget(animations_enabled=lambda: False)
+    qtbot.addWidget(badge)
+    badge.set_state(BadgeState.ISSUES, 3)
+    assert badge.accessibleName() == "Proofline: 3 issues. Click to see them."
+    badge.set_state(BadgeState.CLEAN)
+    assert badge.accessibleName() == "Proofline: no issues found"

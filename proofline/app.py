@@ -6,12 +6,19 @@ import logging
 from dataclasses import replace
 from pathlib import Path
 
-from PyQt6.QtCore import QObject
+from PyQt6.QtCore import QObject, QUrl
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
 from proofline.app_identity import DISPLAY_NAME
 from proofline.checker import GrammarChecker
-from proofline.config import CONFIG_PATH, Config, load_config, save_config
+from proofline.config import (
+    CONFIG_PATH,
+    Config,
+    load_config,
+    save_config,
+    with_rule_label,
+)
 from proofline.field_picker import FieldPickerDialog
 from proofline.health import OutageNotices, ServerHealth
 from proofline.integration import DesktopIntegration
@@ -22,8 +29,9 @@ from proofline.settings_window import SettingsWindow
 from proofline.setup_hints import SetupHint, unseen
 from proofline.text_monitor import TextMonitor
 from proofline.tray import TrayIcon
-from proofline.update_check import UpdateChecker
+from proofline.update_check import RELEASES_PAGE_URL, UpdateChecker
 from proofline.usage import UsageReporting
+from proofline.welcome import WelcomeWindow, should_show_welcome
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +39,7 @@ APP_NAME = DISPLAY_NAME
 NOTIFICATION_MS = 5000
 HINT_NOTIFICATION_MS = 15000
 UPDATE_HINT_PREFIX = "update-"  # shown_hints entry recording that a release was announced
+CLICK_FOR_DETAILS = " Click for details."
 
 
 class LanguageToolApp(QObject):
@@ -49,7 +58,10 @@ class LanguageToolApp(QObject):
         super().__init__()
         self._qt_app = qt_app
         self._config_path = config_path
+        self._config_existed = config_path.exists()  # no settings file yet: a fresh install
         self._config = load_config(config_path)
+        self._welcome: WelcomeWindow | None = None
+        self._notification_url = ""  # opened if the latest notification is clicked
         self._outage_notices = OutageNotices()
         log.info("Loaded config: %r", self._config)
         set_debug_mode(self._config.debug_mode)
@@ -60,6 +72,7 @@ class LanguageToolApp(QObject):
         self._tray.settings_requested.connect(self._settings.show_settings)
         self._tray.enabled_toggled.connect(self._on_enabled_toggled)
         self._tray.quit_requested.connect(self._quit)
+        self._tray.messageClicked.connect(self._on_notification_clicked)
 
         self._checker = GrammarChecker(lambda: self._config)
         self._health = health or ServerHealth(lambda: self._config)
@@ -106,6 +119,7 @@ class LanguageToolApp(QObject):
         self._updates = updates or UpdateChecker(lambda: self._config.check_for_updates)
         self._updates.checked.connect(lambda info: self._show_update_status())
         self._updates.newer_version.connect(self._on_newer_version)
+        self._settings.update_check_requested.connect(lambda: self._updates.check_now(force=True))
         self._show_update_status()
 
         self._usage = usage or UsageReporting(lambda: self._config)
@@ -122,6 +136,9 @@ class LanguageToolApp(QObject):
         self._monitor.start()
         self._updates.start()
         self._usage.start()
+        if should_show_welcome(self._config, self._config_existed):
+            self._welcome = WelcomeWindow(lambda: self._config, self._save)
+            self._welcome.show()
         log.info("%s started", APP_NAME)
 
     def _save(self, config: Config) -> Config:
@@ -152,6 +169,8 @@ class LanguageToolApp(QObject):
             self._tray.toggle_enabled()
         elif action == "check_now":
             self._monitor.request_check_now()
+        elif action == "fix_first":
+            self._overlay.apply_first_suggestion()
 
     def _on_enabled_toggled(self, enabled: bool) -> None:
         log.info("Checking %s", "enabled" if enabled else "paused")
@@ -190,11 +209,10 @@ class LanguageToolApp(QObject):
             replace(self._config, personal_dictionary=(*self._config.personal_dictionary, word))
         )
 
-    def _disable_rule(self, rule_id: str) -> None:
+    def _disable_rule(self, rule_id: str, label: str = "") -> None:
         log.info("Turning off rule %s", rule_id)
-        self._save_quietly(
-            replace(self._config, disabled_rules=(*self._config.disabled_rules, rule_id))
-        )
+        config = replace(self._config, disabled_rules=(*self._config.disabled_rules, rule_id))
+        self._save_quietly(with_rule_label(config, rule_id, label) if label else config)
 
     def _undo(self, field: str, value: str) -> None:
         """Undo a popup action: remove value from the config list it was added to."""
@@ -208,9 +226,8 @@ class LanguageToolApp(QObject):
         if unseen(hint, self._config.shown_hints) is None:
             return
         log.info("Showing setup tip %s", hint.key)
-        self._tray.showMessage(
-            hint.title, hint.message, QSystemTrayIcon.MessageIcon.Information, HINT_NOTIFICATION_MS
-        )
+        self._show_message(hint.title, hint.message, QSystemTrayIcon.MessageIcon.Information,
+                           HINT_NOTIFICATION_MS, hint.url)
         self._save_quietly(replace(self._config, shown_hints=(*self._config.shown_hints, hint.key)))
 
     def _add_custom_field(self, signature: str) -> None:
@@ -244,19 +261,27 @@ class LanguageToolApp(QObject):
             self._notify(message)
 
     def _notify(self, message: str) -> None:
-        self._tray.showMessage(
-            APP_NAME, message, QSystemTrayIcon.MessageIcon.Warning, NOTIFICATION_MS
-        )
+        self._show_message(APP_NAME, message, QSystemTrayIcon.MessageIcon.Warning, NOTIFICATION_MS)
+
+    def _show_message(self, title: str, message: str, icon: QSystemTrayIcon.MessageIcon, ms: int,
+                      url: str = "") -> None:
+        """A tray notification; with url, clicking it opens that page."""
+        self._notification_url = url
+        self._tray.showMessage(title, message + (CLICK_FOR_DETAILS if url else ""), icon, ms)
+
+    def _on_notification_clicked(self) -> None:
+        if self._notification_url:
+            QDesktopServices.openUrl(QUrl(self._notification_url))
 
     def _on_check_failed(self, message: str) -> None:
         if self._outage_notices.should_notify():
             self._notify(message)
 
     def _show_update_status(self) -> None:
-        if not self._config.check_for_updates:
+        info = self._updates.current_info()
+        if not self._config.check_for_updates and info is None:
             self._settings.set_update_status("Update checks are off")
             return
-        info = self._updates.current_info()
         self._settings.set_update_status(info.message if info else "")
 
     def _on_newer_version(self, version: str) -> None:
@@ -265,10 +290,8 @@ class LanguageToolApp(QObject):
         if key in self._config.shown_hints:
             return
         log.info("Announcing Proofline %s", version)
-        self._tray.showMessage(
-            APP_NAME, f"Proofline {version} is available. See Settings › Advanced.",
-            QSystemTrayIcon.MessageIcon.Information, HINT_NOTIFICATION_MS,
-        )
+        self._show_message(APP_NAME, f"Proofline {version} is available.",
+                           QSystemTrayIcon.MessageIcon.Information, HINT_NOTIFICATION_MS, RELEASES_PAGE_URL)
         self._save_quietly(replace(self._config, shown_hints=(*self._config.shown_hints, key)))
 
     def _quit(self) -> None:

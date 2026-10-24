@@ -42,19 +42,24 @@ FLYOUT_WIDTH = 360
 CARD_PADDING = 16
 CARD_SPACING = 12
 GRID_SPACING = 8
-TILE_MIN_HEIGHT = 64
 BADGE_SIZE = 36
 GEAR_SIZE = 32
 EDGE_MARGIN = 12
 BADGE_TEXT = "P"
 APP_TITLE = "Proofline"
 CHECKING_TILE_TITLE = "Checking"
+CHECKING_TOOLTIP = "Turn checking on or off, or pause it. Ctrl+Alt+P turns it on or off."
 PICKY_TILE_TITLE = "Picky mode"
-PAUSE_TILE_TITLE = "Pause for 1 hour"
-PAUSE_TILE_HINT = "Ctrl+Alt+P to toggle"
-PAUSED_TILE_TITLE = "Paused"
-RESUME_HINT = "click to resume"
+PICKY_SUBTITLE = "Extra style tips"
 LANGUAGE_TILE_TITLE = "Language"
+# checking_mode_chosen values, in menu order, with their menu labels.
+CHECKING_ON, PAUSE_HOUR, PAUSE_TODAY, CHECKING_OFF = "on", "pause_hour", "pause_today", "off"
+CHECKING_MODES = (
+    (CHECKING_ON, "On"),
+    (PAUSE_HOUR, "Pause for 1 hour"),
+    (PAUSE_TODAY, "Pause for the rest of today"),
+    (CHECKING_OFF, "Off"),
+)
 ON_LABEL = "On"
 OFF_LABEL = "Off"
 CHECKING_STATUS = "Checking connection…"
@@ -67,7 +72,8 @@ ENABLE_APP_TEXT = "Turn back on"
 ADD_FIELD_TEXT = "Add a text field…"
 MORE_SETTINGS_TEXT = "More settings"
 QUIT_TEXT = "Quit"
-SETTINGS_GLYPH = "⚙"
+SETTINGS_GLYPH = "\ue713"  # Settings, in the Windows icon fonts below
+ICON_FONTS = ["Segoe Fluent Icons", "Segoe MDL2 Assets"]  # Windows 11, Windows 10
 SETTINGS_NAME = "Settings"
 
 
@@ -161,10 +167,8 @@ def _bold(label: QLabel) -> QLabel:
 
 
 class TrayFlyout(QWidget):
-    enabled_toggled = pyqtSignal(bool)
+    checking_mode_chosen = pyqtSignal(str)  # CHECKING_ON, PAUSE_HOUR, PAUSE_TODAY or CHECKING_OFF
     picky_toggled = pyqtSignal(bool)
-    pause_requested = pyqtSignal()
-    resume_requested = pyqtSignal()
     language_chosen = pyqtSignal(str)
     disable_app_requested = pyqtSignal(str)
     enable_app_requested = pyqtSignal(str)
@@ -190,7 +194,6 @@ class TrayFlyout(QWidget):
         """Sync every widget to `state`. Emits no signals."""
         self._state = state
         self._sync_toggles(state)
-        self._sync_pause_tile(state.paused_until)
         self._sync_language(state.language)
         self._sync_header(state)
         self._sync_app_card(state)
@@ -220,7 +223,8 @@ class TrayFlyout(QWidget):
         layout.addLayout(self._build_tiles())
         layout.addWidget(self._build_app_card())
         layout.addLayout(self._build_footer())
-        self._language_menu = self._build_language_menu()
+        self.language_menu = self._build_language_menu()
+        self.checking_menu = self._build_checking_menu()
 
     def _build_header(self) -> QHBoxLayout:
         self._badge = QLabel(BADGE_TEXT)
@@ -236,6 +240,9 @@ class TrayFlyout(QWidget):
         self._gear_button.setAccessibleName(SETTINGS_NAME)
         self._gear_button.setToolTip(SETTINGS_NAME)
         self._gear_button.setFixedSize(GEAR_SIZE, GEAR_SIZE)
+        icon_font = self._gear_button.font()
+        icon_font.setFamilies(ICON_FONTS)
+        self._gear_button.setFont(icon_font)
         self._gear_button.clicked.connect(self._on_settings_clicked)
         row = QHBoxLayout()
         row.setSpacing(CARD_SPACING)
@@ -245,27 +252,25 @@ class TrayFlyout(QWidget):
         return row
 
     def _build_tiles(self) -> QGridLayout:
-        self._enabled_tile = self._make_tile(checkable=True)
+        # Checkable only for the filled "on" look; a click opens the menu instead of toggling.
+        self._checking_tile = self._make_tile(checkable=True)
+        self._checking_tile.setToolTip(CHECKING_TOOLTIP)
         self._picky_tile = self._make_tile(checkable=True)
-        self._pause_tile = self._make_tile(checkable=False)
         self._language_tile = self._make_tile(checkable=False)
-        self._enabled_tile.clicked.connect(self._on_enabled_clicked)
+        self._checking_tile.clicked.connect(self._on_checking_tile_clicked)
         self._picky_tile.clicked.connect(self._on_picky_clicked)
-        self._pause_tile.clicked.connect(self._on_pause_clicked)
         self._language_tile.clicked.connect(self._on_language_tile_clicked)
         grid = QGridLayout()
         grid.setSpacing(GRID_SPACING)
-        grid.addWidget(self._enabled_tile, 0, 0)
+        grid.addWidget(self._checking_tile, 0, 0)
         grid.addWidget(self._picky_tile, 0, 1)
-        grid.addWidget(self._pause_tile, 1, 0)
-        grid.addWidget(self._language_tile, 1, 1)
+        grid.addWidget(self._language_tile, 1, 0, 1, 2)
         return grid
 
     def _make_tile(self, checkable: bool) -> QPushButton:
         tile = QPushButton(self)
         tile.setObjectName("tile")
         tile.setCheckable(checkable)
-        tile.setMinimumHeight(TILE_MIN_HEIGHT)
         # Equal columns regardless of text length.
         tile.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         tile.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -303,7 +308,7 @@ class TrayFlyout(QWidget):
     def _build_footer(self) -> QHBoxLayout:
         more_settings = link_button(MORE_SETTINGS_TEXT)
         more_settings.clicked.connect(self._on_settings_clicked)
-        quit_button = QPushButton(QUIT_TEXT)
+        quit_button = link_button(QUIT_TEXT)
         quit_button.clicked.connect(self._on_quit_clicked)
         row = QHBoxLayout()
         row.addWidget(more_settings)
@@ -324,29 +329,42 @@ class TrayFlyout(QWidget):
         menu.triggered.connect(self._on_language_action)
         return menu
 
+    def _build_checking_menu(self) -> QMenu:
+        menu = QMenu(self)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        for mode, label in CHECKING_MODES:
+            if mode == CHECKING_OFF:
+                menu.addSeparator()
+            action = QAction(label, menu)
+            action.setCheckable(mode in (CHECKING_ON, CHECKING_OFF))
+            action.setData(mode)
+            group.addAction(action)
+            menu.addAction(action)
+        menu.triggered.connect(lambda action: self._finish(lambda: self.checking_mode_chosen.emit(str(action.data()))))
+        return menu
+
     # ----- syncing widgets to state (never emits) ---------------------------
 
     def _sync_toggles(self, state: FlyoutState) -> None:
-        _set_checked_silently(self._enabled_tile, state.enabled)
-        self._enabled_tile.setText(
-            _tile_text(CHECKING_TILE_TITLE, ON_LABEL if state.enabled else OFF_LABEL)
-        )
+        if state.paused_until:
+            subtitle, current = f"Paused until {state.paused_until}", None
+        elif state.enabled:
+            subtitle, current = ON_LABEL, CHECKING_ON
+        else:
+            subtitle, current = OFF_LABEL, CHECKING_OFF
+        _set_checked_silently(self._checking_tile, current == CHECKING_ON)
+        self._checking_tile.setText(_tile_text(CHECKING_TILE_TITLE, subtitle))
+        for action in self.checking_menu.actions():
+            action.setChecked(action.data() == current)
         _set_checked_silently(self._picky_tile, state.picky)
         self._picky_tile.setText(
-            _tile_text(PICKY_TILE_TITLE, ON_LABEL if state.picky else OFF_LABEL)
+            _tile_text(PICKY_TILE_TITLE, f"{PICKY_SUBTITLE}: {ON_LABEL if state.picky else OFF_LABEL}")
         )
-
-    def _sync_pause_tile(self, paused_until: str) -> None:
-        if paused_until:
-            # Tiles cannot word-wrap, so the resume hint goes on its own line.
-            text = f"{PAUSED_TILE_TITLE}\nUntil {paused_until}\n{RESUME_HINT}"
-        else:
-            text = _tile_text(PAUSE_TILE_TITLE, PAUSE_TILE_HINT)
-        self._pause_tile.setText(text)
 
     def _sync_language(self, code: str) -> None:
         self._language_tile.setText(_tile_text(LANGUAGE_TILE_TITLE, _language_name(code)))
-        for action in self._language_menu.actions():
+        for action in self.language_menu.actions():
             action.setChecked(action.data() == code)
 
     def _sync_header(self, state: FlyoutState) -> None:
@@ -387,23 +405,18 @@ class TrayFlyout(QWidget):
         emit()
         self.hide()
 
-    def _on_enabled_clicked(self, checked: bool) -> None:
-        self.set_state(replace(self._state, enabled=checked))
-        self.enabled_toggled.emit(checked)
+    def _on_checking_tile_clicked(self) -> None:
+        self._sync_toggles(self._state)  # undo the click's own toggle; the menu decides
+        below_tile = QPoint(0, self._checking_tile.height())
+        self.checking_menu.popup(self._checking_tile.mapToGlobal(below_tile))
 
     def _on_picky_clicked(self, checked: bool) -> None:
         self.set_state(replace(self._state, picky=checked))
         self.picky_toggled.emit(checked)
 
-    def _on_pause_clicked(self) -> None:
-        if self._state.paused_until:
-            self._finish(self.resume_requested.emit)
-        else:
-            self._finish(self.pause_requested.emit)
-
     def _on_language_tile_clicked(self) -> None:
         below_tile = QPoint(0, self._language_tile.height())
-        self._language_menu.popup(self._language_tile.mapToGlobal(below_tile))
+        self.language_menu.popup(self._language_tile.mapToGlobal(below_tile))
 
     def _on_language_action(self, action: QAction) -> None:
         self._choose_language(str(action.data()))

@@ -41,7 +41,7 @@ class OverlayController(QObject):
     disable_window_requested = pyqtSignal(str)  # window title
     settings_requested = pyqtSignal()
     add_word_requested = pyqtSignal(str)  # word for the personal dictionary
-    disable_rule_requested = pyqtSignal(str)  # LanguageTool rule id
+    disable_rule_requested = pyqtSignal(str, str)  # LanguageTool rule id, its name
     undo_requested = pyqtSignal(str, str)  # config field, value to remove again
 
     def __init__(
@@ -168,14 +168,24 @@ class OverlayController(QObject):
         self.refresh()
         self.replace_requested.emit(ReplaceRequest.build(self._snapshot, match, replacement))
 
+    def apply_first_suggestion(self) -> bool:
+        """Keyboard alternative to the popup: apply the first suggestion of the first issue that has one."""
+        if self._snapshot is None:
+            return False
+        for match in self._matches:
+            if match.replacements:
+                self._on_replacement_chosen(match, match.replacements[0])
+                return True
+        return False
+
     def _on_add_word(self, match: Match) -> None:
         word = match.error_text.strip()
         self.add_word_requested.emit(word)
         self._popup.show_notice(f"Added “{word}” to your dictionary.", "personal_dictionary", word)
 
     def _on_disable_rule(self, match: Match) -> None:
-        self.disable_rule_requested.emit(match.rule_id)
         label = match.short_message or match.category or match.rule_id
+        self.disable_rule_requested.emit(match.rule_id, label)
         self._popup.show_notice(f"Turned off “{label}” checks.", "disabled_rules", match.rule_id)
 
     def _on_disable_app(self) -> None:

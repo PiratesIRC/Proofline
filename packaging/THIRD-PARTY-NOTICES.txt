@@ -1,0 +1,23 @@
+Proofline
+Copyright (C) 2026 PiratesIRC
+Licensed under the GNU General Public License version 3; see LICENSE.txt.
+Source code: https://github.com/PiratesIRC/Proofline
+
+This build includes the following third-party software, each under its own license:
+
+  Python            PSF License             https://www.python.org/
+  PyQt6             GPL-3.0                 https://www.riverbankcomputing.com/software/pyqt/
+  Qt 6              LGPL-3.0                https://www.qt.io/
+  uiautomation      Apache-2.0              https://github.com/yinkaisheng/Python-UIAutomation-for-Windows
+  comtypes          MIT                     https://github.com/enthought/comtypes
+  requests          Apache-2.0              https://github.com/psf/requests
+  urllib3           MIT                     https://github.com/urllib3/urllib3
+  certifi           MPL-2.0                 https://github.com/certifi/python-certifi
+  charset-normalizer MIT                    https://github.com/jawah/charset_normalizer
+  idna              BSD-3-Clause            https://github.com/kjd/idna
+  pywin32           PSF License             https://github.com/mhammond/pywin32
+
+Proofline works with a LanguageTool server, which is a separate program under the
+LGPL-2.1 and is not included: https://github.com/languagetool-org/languagetool
+"LanguageTool" is a trademark of LanguageTooler GmbH. Proofline is not made by, endorsed
+by or affiliated with LanguageTooler GmbH.

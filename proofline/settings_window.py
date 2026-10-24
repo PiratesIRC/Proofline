@@ -57,6 +57,7 @@ SaveHandler = Callable[[Config], Config]
 
 class SettingsWindow(QWidget):
     pick_field_requested = pyqtSignal()  # "Add a text field…"
+    update_check_requested = pyqtSignal()  # "Check now"
 
     def __init__(self, config_provider: ConfigProvider, save_handler: SaveHandler, log_dir: Path = LOG_DIR) -> None:
         super().__init__()
@@ -80,6 +81,7 @@ class SettingsWindow(QWidget):
             page.changed.connect(self.apply_changes)
         self.general.server_save_requested.connect(self.save_server)
         self.apps.pick_field_requested.connect(self.pick_field_requested.emit)
+        self.advanced.update_check_requested.connect(self.update_check_requested.emit)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("Find a setting")

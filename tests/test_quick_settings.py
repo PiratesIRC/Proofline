@@ -15,6 +15,7 @@ from proofline.quick_settings import (
 )
 from proofline.text_snapshot import FocusResult
 from proofline.tray import TrayIcon
+from proofline.tray_flyout import CHECKING_OFF, CHECKING_ON, PAUSE_HOUR, PAUSE_TODAY
 
 
 class Harness:
@@ -49,6 +50,7 @@ def focus(process="notepad.exe", reason="ok via Text", snap=True, title="notes.t
 def test_helpers():
     assert connected_message("http://lan-server:8081/v2/check") == "Connected to lan-server"
     assert pause_label(datetime(2026, 10, 23, 14, 5)) == "2:05 PM"
+    assert pause_label(datetime(2026, 10, 24, 0, 0)) == "midnight"
 
 
 @pytest.mark.parametrize(
@@ -98,7 +100,7 @@ def test_flyout_toggles_save(h):
     h.quick.flyout.picky_toggled.emit(True)
     h.quick.flyout.language_chosen.emit("es")
     assert (h.config.picky, h.config.language) == (True, "es")
-    h.quick.flyout.enabled_toggled.emit(False)
+    h.quick.flyout.checking_mode_chosen.emit(CHECKING_OFF)
     assert not h.config.enabled
 
 
@@ -185,3 +187,30 @@ def test_restore_without_saved_pause_changes_nothing(h):
     _restart(h, enabled=False)
     assert not h.config.enabled
     assert h.quick.paused_until is None
+
+
+def test_checking_modes_from_the_flyout(h):
+    h.quick.flyout.checking_mode_chosen.emit(PAUSE_HOUR)
+    assert not h.config.enabled and h.quick.state().paused_until == "2:00 PM"
+    h.quick.flyout.checking_mode_chosen.emit(PAUSE_TODAY)
+    assert h.quick.state().paused_until == "midnight"
+    assert h.config.paused_until == "2026-10-24T00:00:00"
+    h.quick.flyout.checking_mode_chosen.emit(CHECKING_ON)
+    assert h.config.enabled and h.quick.paused_until is None
+    h.quick.flyout.checking_mode_chosen.emit(PAUSE_HOUR)
+    h.quick.flyout.checking_mode_chosen.emit(CHECKING_OFF)
+    assert not h.config.enabled and h.quick.paused_until is None and h.config.paused_until == ""
+
+
+@pytest.mark.parametrize("shell", ["explorer.exe", "ShellExperienceHost.exe", "StartMenuExperienceHost.exe", "SearchHost.exe"])
+def test_clicking_the_taskbar_keeps_the_last_real_app(h, shell):
+    """Opening the flyout moves focus to the taskbar; the card should still show the app you were in."""
+    h.quick.on_focus_changed(focus())
+    h.quick.on_focus_changed(focus(process=shell, reason="not a text control (PaneControl)", snap=False, title="Taskbar"))
+    assert (h.quick.state().current_app, h.quick.state().current_app_status) == ("notepad.exe", STATUS_CHECKED)
+
+
+def test_a_text_box_in_explorer_still_counts(h):
+    h.quick.on_focus_changed(focus())
+    h.quick.on_focus_changed(focus(process="explorer.exe", title="Documents"))
+    assert h.quick.state().current_app == "explorer.exe"

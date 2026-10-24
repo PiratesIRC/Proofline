@@ -59,6 +59,44 @@ _ASCII_DIGITS = frozenset("0123456789")
 _SEPARATOR = "+"
 
 
+# Qt key -> config name for the keys parse_hotkey() accepts besides letters, digits and F-keys.
+_QT_KEY_NAMES = {
+    "Key_Space": "space", "Key_Return": "enter", "Key_Enter": "enter", "Key_Tab": "tab",
+    "Key_Escape": "esc", "Key_Backspace": "backspace", "Key_Delete": "delete", "Key_Insert": "insert",
+    "Key_Home": "home", "Key_End": "end", "Key_PageUp": "pageup", "Key_PageDown": "pagedown",
+}
+
+def hotkey_from_key(key: object, modifiers: object) -> str | None:
+    """A pressed Qt key plus modifiers in config form ("ctrl+alt+p"), or None if not usable.
+
+    Needs at least one of Ctrl, Alt, Shift or Win plus one key parse_hotkey() understands.
+    """
+    from PyQt6.QtCore import Qt  # local: this module is otherwise free of Qt widgets
+
+    mods = Qt.KeyboardModifier(modifiers)
+    names = [name for flag, name in (
+        (Qt.KeyboardModifier.ControlModifier, "ctrl"), (Qt.KeyboardModifier.AltModifier, "alt"),
+        (Qt.KeyboardModifier.ShiftModifier, "shift"), (Qt.KeyboardModifier.MetaModifier, "win"),
+    ) if mods & flag]
+    key = Qt.Key(key)
+    if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+        name = chr(key.value).lower()
+    elif Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+        name = chr(key.value)
+    elif Qt.Key.Key_F1 <= key <= Qt.Key.Key_F24:
+        name = f"f{key.value - Qt.Key.Key_F1.value + 1}"
+    else:
+        name = _QT_KEY_NAMES.get(key.name, "")
+    if not names or not name:
+        return None
+    return _SEPARATOR.join([*names, name])
+
+
+def display_hotkey(value: str) -> str:
+    """'ctrl+alt+p' as 'CTRL+ALT+P' for showing in Settings."""
+    return value.upper()
+
+
 class HotkeyError(ValueError):
     """Raised for an unparseable hotkey or one that cannot be registered."""
 

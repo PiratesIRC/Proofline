@@ -21,6 +21,7 @@ from PyQt6.QtGui import (
     QMouseEvent,
     QPainter,
     QPaintEvent,
+    QPalette,
     QPen,
 )
 from PyQt6.QtWidgets import (
@@ -38,6 +39,9 @@ SWITCH_SIZE = QSize(40, 20)
 KNOB_ON_PX = 12
 KNOB_OFF_PX = 10
 CARD_MIN_HEIGHT = 48
+# Flyout tiles are 64 px: 42 px of text area + 2 x 10 px padding + 2 x 1 px border. It has to be
+# a style rule: the sheet's QPushButton min-height overrides setMinimumHeight().
+TILE_CONTENT_MIN_PX = 42
 CHEVRON_OPEN = "▴"
 CHEVRON_CLOSED = "▾"
 
@@ -135,7 +139,7 @@ def stylesheet(tokens: Tokens, accent: str) -> str:
     QPushButton#linkButton {{ background: transparent; border: none; color: {fill}; padding: 4px 0; }}
     QPushButton#tile {{
         background: {t.card}; border: 1px solid {t.card_border}; border-radius: 6px;
-        text-align: left; padding: 10px 12px;
+        text-align: left; padding: 10px 12px; min-height: {TILE_CONTENT_MIN_PX}px;
     }}
     QPushButton#tile:checked {{ background: {fill}; color: {on_fill}; border: none; }}
     QScrollArea {{ background: transparent; border: none; }}
@@ -149,6 +153,15 @@ def apply_style(widget: QWidget, accent: str, extra: Callable[[Tokens], str] | N
     widget.setObjectName(widget.objectName() or "uiRoot")
     widget.setStyleSheet("")
     widget.setStyleSheet(stylesheet(tokens, accent) + (extra(tokens) if extra else ""))
+    # Rich-text links take their colour from each label's own palette (the label rule above
+    # gives every label its own), not from the style sheet or the window.
+    link = QColor(readable_accent(accent, tokens))
+    for label in widget.findChildren(QLabel):
+        if label.openExternalLinks():
+            palette = label.palette()
+            palette.setColor(QPalette.ColorRole.Link, link)
+            palette.setColor(QPalette.ColorRole.LinkVisited, link)
+            label.setPalette(palette)
     for switch in widget.findChildren(ToggleSwitch):
         switch.set_colors(readable_accent(accent, tokens), tokens.off_track)
     return tokens
@@ -223,7 +236,10 @@ def _text_column(title: str, description: str) -> tuple[QVBoxLayout, QLabel, QLa
     description_label = QLabel(description)
     description_label.setObjectName("cardDescription")
     description_label.setWordWrap(True)
-    description_label.setVisible(bool(description))
+    if not description:
+        # Only ever hide here: showing a label that has no parent yet opens it as a top-level
+        # window for a moment (seen as small windows flashing at startup).
+        description_label.hide()
     column = QVBoxLayout()
     column.setSpacing(1)
     column.addWidget(title_label)

@@ -8,7 +8,6 @@ so a half-typed value never takes effect.
 
 from __future__ import annotations
 
-import html
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -31,24 +30,34 @@ from proofline.config import (
     DEFAULT_DISABLED_APPS,
     DEFAULT_DISABLED_WINDOWS,
     DEFAULT_SERVER_URL,
+    IS_PORTABLE,
     LANGUAGES,
     MIN_WORDS_RANGE,
     Config,
     ConfigError,
     is_insecure_remote,
     normalize_server_url,
+    rule_label,
 )
 from proofline.diagnostics import build_report, clear_logs
 from proofline.hotkeys import HotkeyError, parse_hotkey
 from proofline.list_editor import StringListEditor
 from proofline.server_test import ServerStatus, StatusLevel, run_server_test
+from proofline.settings_widgets import (
+    CATEGORIES_URL,
+    CategoryChecklist,
+    HotkeyRecorder,
+    ServerStatusLabel,
+    custom_field_label,
+    rule_browser_url,
+    running_app_button,
+)
 from proofline.tray import TRAY_COLORS
 from proofline.ui_kit import (
     ExpanderCard,
     InfoBar,
     SettingCard,
     ToggleSwitch,
-    set_object_name,
 )
 from proofline.update_check import RELEASES_PAGE_URL
 from proofline.workers import run_in_background
@@ -60,24 +69,25 @@ COMBO_WIDTH = 190
 SWATCH_PX = 14
 DELAY_CHOICES_MS = (500, 1000, 1500, 2000, 3000, 5000)
 THEME_CHOICES = (("Follow Windows", "auto"), ("Light", "light"), ("Dark", "dark"))
-HOTKEY_FIELDS = (("hotkey_toggle", "Pause or resume checking"), ("hotkey_check_now", "Check the current field now"))
+HOTKEY_FIELDS = (
+    ("hotkey_toggle", "Pause or resume checking"),
+    ("hotkey_check_now", "Check the current field now"),
+    ("hotkey_fix_first", "Apply the first suggestion"),
+)
+HELP_URL = "https://github.com/PiratesIRC/Proofline/blob/main/docs/TROUBLESHOOTING.md"
+CHANGELOG_URL = "https://github.com/PiratesIRC/Proofline/blob/main/CHANGELOG.md"
 INSECURE_TITLE = "Unencrypted connection."
 INSECURE_MESSAGE = (
     "This server uses http:// on another computer, so what you type travels over the "
     "network unencrypted. Use https:// if the server supports it."
 )
-SERVER_DESCRIPTION = "Where your text is sent to be checked"
-TESTING_TEXT = "Testing…"
-# Status line per test level: label object name (colour) and a shape, so colour isn't the only cue.
-STATUS_STYLE = {
-    StatusLevel.READY: ("statusOk", "●"),
-    StatusLevel.PROBLEM: ("statusWarn", "▲"),
-    StatusLevel.UNREACHABLE: ("statusError", "✕"),
-}
-CATEGORIES_HINT = "Common categories: TYPOS, GRAMMAR, PUNCTUATION, CASING, STYLE, TYPOGRAPHY, REDUNDANCY."
+RULES_LINK_TEXT = "Browse LanguageTool's rules (ids and what they check)"
+CATEGORIES_LINK_TEXT = "List of LanguageTool categories"
+SERVER_DESCRIPTION = "Where your text is checked"
 LANGUAGETOOL_URL = "https://languagetool.org"
 UPDATES_DESCRIPTION = "Asks GitHub once a day whether a newer Proofline release exists. Sends none of your text."
 UPDATES_OFF_TEXT = "Update checks are off"
+CHECKING_UPDATES_TEXT = "Checking for updates…"
 SHARE_USAGE_DESCRIPTION = (
     "Sends the number of corrections you applied and a random id for this install to the author's "
     "counter at plugin-stats.dpas.workers.dev, at most once an hour, for the Active Installs and "
@@ -198,11 +208,7 @@ class GeneralPage(Page):
             SettingCard("LanguageTool server", SERVER_DESCRIPTION,
                         self._url, self._test_button, self._save_button, keywords="url connection http test")
         )
-        self.status_label = QLabel()
-        self.status_label.setObjectName("cardDescription")
-        self.status_label.setTextFormat(Qt.TextFormat.RichText)
-        self.status_label.setWordWrap(True)
-        self.status_label.hide()
+        self.status_label = ServerStatusLabel()
         self._layout.addWidget(self.status_label)
         self.insecure_bar = InfoBar("warning", INSECURE_TITLE, INSECURE_MESSAGE)
         self._layout.addWidget(self.insecure_bar)
@@ -238,7 +244,7 @@ class GeneralPage(Page):
         generation = self._test_generation
         url_text, language = self._url.text(), self._language.currentData()
         self._test_button.setEnabled(False)
-        self._set_status("cardDescription", TESTING_TEXT)
+        self.status_label.show_testing()
         run_in_background(
             lambda: run_server_test(url_text, language),
             lambda result: self._on_test_done(generation, result),
@@ -253,14 +259,7 @@ class GeneralPage(Page):
         self.show_test_result(result)
 
     def show_test_result(self, result: ServerStatus) -> None:
-        object_name, glyph = STATUS_STYLE[result.level]
-        detail = f"&nbsp;&nbsp;{html.escape(result.detail, quote=False)}" if result.detail else ""
-        self._set_status(object_name, f"<b>{glyph} {html.escape(result.title, quote=False)}</b>{detail}")
-
-    def _set_status(self, object_name: str, text: str) -> None:
-        set_object_name(self.status_label, object_name)
-        self.status_label.setText(text)
-        self.status_label.show()
+        self.status_label.show_result(result)
 
 
 class CheckingPage(Page):
@@ -275,17 +274,15 @@ class CheckingPage(Page):
         self._delay.currentIndexChanged.connect(lambda: self._emit(debounce_ms=self._delay.currentData()))
         self._min_words = QSpinBox()
         self._min_words.setRange(*MIN_WORDS_RANGE)
-        self._min_words.setSuffix(" word(s)")
+        self._min_words.valueChanged.connect(self._sync_words_suffix)
         self._min_words.valueChanged.connect(lambda value: self._emit(min_words=value))
         self._picky = _switch("Picky mode", lambda on: self._emit(picky=on))
         self._words = StringListEditor("", "e.g. Dispatcharr")
         self._words.items_changed.connect(lambda: self._emit(personal_dictionary=self._words.items()))
-        self._rules = StringListEditor("Turned-off rules", "e.g. WHITESPACE_RULE")
+        self._rules = StringListEditor("Turned-off rules", "Rule id, e.g. WHITESPACE_RULE")
         self._rules.items_changed.connect(lambda: self._emit(disabled_rules=self._rules.items()))
-        self._categories = StringListEditor("Turned-off categories", "e.g. STYLE")
-        self._categories.items_changed.connect(
-            lambda: self._emit(disabled_categories=tuple(c.upper() for c in self._categories.items()))
-        )
+        self._categories = CategoryChecklist()
+        self._categories.changed.connect(lambda: self._emit(disabled_categories=self._categories.disabled()))
 
         self._group("When to check")
         self._card(SettingCard("Check after I stop typing for", "", self._delay, keywords="delay pause debounce"))
@@ -300,7 +297,10 @@ class CheckingPage(Page):
         self._rules_card = self._card(ExpanderCard("Turned-off rules and categories",
                                                    "Rules can also be turned off from the issues popup",
                                                    keywords="rules categories disable"))
-        for widget in (self._rules, self._categories, QLabel(CATEGORIES_HINT)):
+        self.rules_link = _link_label(rule_browser_url("auto"), RULES_LINK_TEXT)
+        self.categories_link = _link_label(CATEGORIES_URL, CATEGORIES_LINK_TEXT)
+        for widget in (self._rules, self.rules_link, QLabel("Turned-off categories"), self._categories,
+                       self.categories_link):
             self._rules_card.body_layout.addWidget(widget)
         self._finish()
 
@@ -309,12 +309,18 @@ class CheckingPage(Page):
         self._min_words.setValue(config.min_words)
         self._picky.setChecked(config.picky)
         self._words.set_items(config.personal_dictionary)
+        self._rules.set_label(lambda rule_id: rule_label(config, rule_id))
+        self.rules_link.setText(f'<a href="{rule_browser_url(config.language)}">{RULES_LINK_TEXT}</a>')
         self._rules.set_items(config.disabled_rules)
-        self._categories.set_items(config.disabled_categories)
+        self._categories.set_disabled(config.disabled_categories)
         self._dictionary.set_summary(_count(len(config.personal_dictionary), "word"))
         self._rules_card.set_summary(
             f"{_count(len(config.disabled_rules), 'rule')} · {_count(len(config.disabled_categories), 'category')}"
         )
+
+
+    def _sync_words_suffix(self, value: int) -> None:
+        self._min_words.setSuffix(" word" if value == 1 else " words")
 
 
 class AppsPage(Page):
@@ -333,20 +339,23 @@ class AppsPage(Page):
                                "e.g. KeePass.exe", "app", "exclude exclusions")
         recommended = QPushButton("Add recommended exclusions")
         recommended.clicked.connect(self._add_recommended)
+        apps.body_layout.addWidget(running_app_button(self._lists["disabled_apps"][1].add_item))
         apps.body_layout.addWidget(recommended)
         self._list_card("disabled_windows", "Window titles containing", "Sign-in, password and remote desktop windows",
                         "e.g. Remote Desktop", "title", "exclude exclusions login")
         self._group("Always check")
-        self._list_card("always_check_apps", "Apps", "Checked even if an exclusion matches", "e.g. erp.exe", "app",
-                        "always include")
+        always = self._list_card("always_check_apps", "Apps", "Checked even if an exclusion matches", "e.g. erp.exe",
+                                 "app", "always include")
+        always.body_layout.addWidget(running_app_button(self._lists["always_check_apps"][1].add_item))
         self._list_card("custom_fields", "Custom text fields", "Added with “Add a text field…”",
-                        "app.exe|ControlType|ClassName", "field", "custom signature")
+                        "Advanced: app.exe|ControlType|ClassName", "field", "custom signature",
+                        label=custom_field_label)
         self._finish()
 
     def _list_card(self, field: str, title: str, description: str, placeholder: str, noun: str,
-                   keywords: str) -> ExpanderCard:
+                   keywords: str, label: Callable[[str], str] | None = None) -> ExpanderCard:
         card = self._card(ExpanderCard(title, description, keywords=keywords))
-        editor = StringListEditor("", placeholder)
+        editor = StringListEditor("", placeholder, label=label)
         editor.items_changed.connect(lambda: self._emit(**{field: editor.items()}))
         card.body_layout.addWidget(editor)
         self._lists[field] = (card, editor, noun)
@@ -400,10 +409,9 @@ class ShortcutsPage(Page):
 
     def __init__(self) -> None:
         super().__init__()
-        self._edits: dict[str, QLineEdit] = {}
+        self._edits: dict[str, HotkeyRecorder] = {}
         for field, label in HOTKEY_FIELDS:
-            edit = QLineEdit()
-            edit.setPlaceholderText("(off)")
+            edit = HotkeyRecorder()
             edit.setMinimumWidth(COMBO_WIDTH)
             self._edits[field] = edit
             self._card(SettingCard(label, "", edit, keywords="hotkey keyboard"))
@@ -412,18 +420,19 @@ class ShortcutsPage(Page):
         self._layout.addWidget(self.error_bar)
         apply_button = _accent_button("Apply")
         apply_button.clicked.connect(self.apply_shortcuts)
-        self._card(SettingCard("Apply shortcuts", "Type a combination such as ctrl+alt+p. Leave a box empty to turn it off.",
+        self._card(SettingCard("Apply shortcuts", "Click a box and press the keys, e.g. CTRL+ALT+P. Backspace clears "
+                               "a box, which turns that shortcut off.",
                                apply_button, keywords="hotkey"))
         self._finish()
 
     def _load(self, config: Config) -> None:
         for field, edit in self._edits.items():
-            edit.setText(getattr(config, field))
+            edit.set_hotkey(getattr(config, field))
         self.error_bar.hide()
 
     def apply_shortcuts(self) -> None:
         try:
-            values = validate_hotkeys({field: edit.text() for field, edit in self._edits.items()})
+            values = validate_hotkeys({field: edit.hotkey() for field, edit in self._edits.items()})
         except ConfigError as exc:
             self.error_bar.show_message("error", "Shortcut not applied.", str(exc))
             self.error_bar.show()
@@ -451,6 +460,7 @@ def validate_hotkeys(values: dict[str, str]) -> dict[str, str]:
 
 class AdvancedPage(Page):
     title = "Advanced"
+    update_check_requested = pyqtSignal()
 
     def __init__(self, config_provider: Callable[[], Config], log_dir: Path) -> None:
         super().__init__()
@@ -473,14 +483,19 @@ class AdvancedPage(Page):
             diagnostics.add_control(button)
         self._layout.addWidget(self.result_bar)
         self._updates = _switch("Check for updates", lambda on: self._emit(check_for_updates=on))
-        self._card(SettingCard("Check for updates", UPDATES_DESCRIPTION, self._updates,
+        self.check_now_button = QPushButton("Check now")
+        self.check_now_button.clicked.connect(self._on_check_now)
+        self._card(SettingCard("Check for updates", UPDATES_DESCRIPTION, self.check_now_button, self._updates,
                                keywords="update version release github"))
         self._share_usage = _switch("Share anonymous usage counts", lambda on: self._emit(share_usage_counts=on))
         self._card(SettingCard("Share anonymous usage counts", SHARE_USAGE_DESCRIPTION, self._share_usage,
                                keywords="usage statistics telemetry privacy badge"))
         self._storage_text = f"Settings and logs are stored in {log_dir.parent}"
-        self.about_card = self._card(SettingCard("About", "", _link_label(RELEASES_PAGE_URL, "Releases"),
-                                                 keywords="version folder update"))
+        self.help_link = _link_label(HELP_URL, "Help")
+        self.changelog_link = _link_label(CHANGELOG_URL, "What's new")
+        self.about_card = self._card(SettingCard("About", "", self.help_link, self.changelog_link,
+                                                 _link_label(RELEASES_PAGE_URL, "Releases"),
+                                                 keywords="version folder update help troubleshooting changelog"))
         self.show_update_status("")
         self.attribution_link = _link_label(LANGUAGETOOL_URL, "languagetool.org")
         self._card(SettingCard("Powered by LanguageTool", ATTRIBUTION_TEXT, self.attribution_link,
@@ -493,9 +508,14 @@ class AdvancedPage(Page):
         self._share_usage.setChecked(config.share_usage_counts)
         self.result_bar.hide()
 
+    def _on_check_now(self) -> None:
+        self.show_update_status(CHECKING_UPDATES_TEXT)
+        self.update_check_requested.emit()
+
     def show_update_status(self, status: str) -> None:
         """status: the update check's one-line result ('' while none is known yet)."""
-        version = f"Proofline {__version__}" + (f". {status}" if status else "")
+        edition = " (portable)" if IS_PORTABLE else ""
+        version = f"Proofline {__version__}{edition}" + (f". {status}" if status else "")
         self.about_card.set_description(f"{version}\n{self._storage_text}")
 
     def copy_report(self) -> None:

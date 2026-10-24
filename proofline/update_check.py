@@ -95,11 +95,12 @@ def cached_info(current: str, path: Path = CACHE_PATH) -> VersionInfo | None:
 
 def check_for_update(
     current: str, path: Path = CACHE_PATH, now: float | None = None, fetch: Callable[[], str | None] = fetch_latest_version,
+    force: bool = False,
 ) -> VersionInfo:
-    """The cached result while it is fresh, otherwise a new check (saved to the cache)."""
+    """The cached result while it is fresh, otherwise (or when forced) a new check, saved to the cache."""
     now = time.time() if now is None else now
     cache = _load(path)
-    if cache and not _is_stale(cache, current, now):
+    if cache and not force and not _is_stale(cache, current, now):
         return cached_info(current, path) or unavailable(current)
     latest = fetch()
     info = compare_versions(current, latest) if latest else unavailable(current)
@@ -188,12 +189,14 @@ class UpdateChecker(QObject):
         """What windows show: the cached result only, never a network call."""
         return cached_info(self._current, self._path)
 
-    def check_now(self) -> None:
-        if not self._enabled() or self._running:
+    def check_now(self, force: bool = False) -> None:
+        """Refresh if stale; force (the Check now button) asks GitHub now, even with checks off."""
+        if self._running or not (force or self._enabled()):
             return
         self._running = True
         current, path, check = self._current, self._path, self._check
-        run_in_background(lambda: check(current, path), self._on_done, self._on_failed)
+        task = (lambda: check(current, path, force=True)) if force else (lambda: check(current, path))
+        run_in_background(task, self._on_done, self._on_failed)
 
     def _on_done(self, info: VersionInfo) -> None:
         self._running = False

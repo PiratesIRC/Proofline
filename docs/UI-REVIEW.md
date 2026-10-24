@@ -2,7 +2,9 @@
 
 A review of the app's windows from the point of view of a beginner or everyday user, with the
 changes it recommends. Status column: **done** means implemented and tested, **open** means not
-started.
+started. As of 0.2.0 every item is done; also fixed along the way: tile text clipped at high
+display scaling, unreadable dark-mode links, windows flashing at startup, and the flyout's
+"Current app" card showing the taskbar.
 
 ## How the review was done
 
@@ -22,7 +24,7 @@ differently from the rest of the app and has permanent one-click actions with no
 
 ## Recommendations
 
-### 1. First-run welcome window (open)
+### 1. First-run welcome window (done 2026-10-24)
 
 Today the app starts silently in the tray (often inside the `^` overflow area) and the server
 address must be found in Settings. Add a three-step window shown on first launch:
@@ -57,7 +59,7 @@ returned 1 issue(s)". It now shows one status line in three colours:
 
 Save also runs the test, so a user who forgets to press Test still sees the result.
 
-### 4. Names people can read instead of raw IDs (open)
+### 4. Names people can read instead of raw IDs (done 2026-10-24)
 
 - Turned-off rules are typed as IDs such as `MORFOLOGIK_RULE_EN_US`. Store the rule's description
   when it is turned off from the popup and show "Possible spelling mistake (MORFOLOGIK_…)".
@@ -67,7 +69,7 @@ Save also runs the test, so a user who forgets to press Test still sees the resu
 - Shortcuts are typed as text (`ctrl+alt+p`). Use a recorder field ("Press the keys you want")
   and display `Ctrl+Alt+P`.
 
-### 5. Checking, Pause and the shortcut in the flyout (open)
+### 5. Checking, Pause and the shortcut in the flyout (done 2026-10-24)
 
 "Checking: Off" and "Pause for 1 hour" look like two features doing the same thing, and the pause
 tile's hint says "Ctrl+Alt+P to toggle" although that shortcut turns checking on and off, not the
@@ -83,7 +85,7 @@ per 30 minutes even if the server keeps dropping out. The tray icon and its tool
 current state. Not measured: how often it fired before, because this PC has no app log
 (`%LOCALAPPDATA%\LanguageToolDesktop\logs` does not exist here).
 
-## Smaller findings (open)
+## Smaller findings (done 2026-10-24)
 
 | Where | Finding | Change |
 |---|---|---|
@@ -91,16 +93,19 @@ current state. Not measured: how often it fired before, because this PC has no a
 | Flyout footer | **Quit** has a border and stands out more than **More settings**; the gear opens the same window | Plain text link for Quit |
 | Field picker | Unstyled Qt; a large technical details box dominates; greyed-out buttons before any capture | `ui_kit` style, "Technical details" collapsed, only relevant buttons shown |
 | Setup tips | Tray balloons with raw URLs and literal backticks; marked as seen even if missed | Show in the flyout or a small window with a clickable link |
-| Advanced › About | No version, changelog or help link | Version, "What's new", Help / Troubleshooting link. Version, update status and a Releases link done 2026-10-24; help link open |
+| Advanced › About | No version, changelog or help link | Version, "What's new", Help / Troubleshooting link. Done 2026-10-24: version, update status, Help, What's new and Releases links |
 | Checking page | Spin box suffix "2 word(s)" | "2 words" with correct plural |
 | General page | Server description wraps ("…sent to be / checked") | Shorter text or wider column |
 
-## Accessibility (open)
+## Accessibility (done 2026-10-24)
+
+Done as: a 24 px badge disc with an accessible name, and a global shortcut (Ctrl+Alt+J) that
+applies the first suggestion, instead of numbered keys in a popup that cannot take focus.
 
 - Badge disc is 20 px; WCAG 2.2 target size (2.5.8) asks for 24 px.
 - The popup never takes focus (on purpose, so the text field keeps it), so keyboard and
   screen-reader users can't pick a suggestion. Option: a shortcut that opens the popup with
-  numbered suggestions (1–9).
+  numbered suggestions (1 to 9).
 - The badge has no accessible name.
 
 ## What already works

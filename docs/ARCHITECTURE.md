@@ -46,7 +46,7 @@ immutable `Config` dataclass: every change creates a new object, saves it, then
 | Overlay | `overlay_controller.py`, `badge.py`, `overlay_widgets.py` (issues popup, Undo notice), `app_names.py` (friendly app names), `non_activating.py`, `screen_coords.py` (physical → logical pixels) |
 | Corrections | `replace_request.py`, `text_replace.py`, `clipboard.py` |
 | Tray and quick settings | `tray.py`, `tray_flyout.py`, `quick_settings.py`, `window_corners.py` |
-| Settings UI | `settings_window.py`, `settings_pages.py`, `ui_kit.py` (cards, switches, info bars, theme tokens), `list_editor.py`, `field_picker.py` |
+| Settings UI | `settings_window.py`, `settings_pages.py`, `settings_widgets.py` (category checklist, shortcut recorder, running-app picker, server status line), `ui_kit.py` (cards, switches, info bars, theme tokens), `list_editor.py`, `field_picker.py`, `welcome.py` (first-run window) |
 | Desktop integration | `integration.py`, `theme.py`, `autostart.py`, `hotkeys.py` |
 | Diagnostics | `diagnostics.py`, `probe.py` |
 | Usage counts | `usage.py` (ledger, Windows lock, reporting points), `usage_client.py` (vendored from plugin-stats, pinned in `scripts/client_manifest.json`; never edit) |

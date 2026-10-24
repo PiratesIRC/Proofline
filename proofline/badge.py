@@ -33,12 +33,12 @@ from PyQt6.QtWidgets import QWidget
 
 from proofline.non_activating import make_non_activating
 
-BADGE_SIZE = 30  # widget size; leaves room around the disc for the pulse ring
-DISC_DIAMETER = 20
+BADGE_SIZE = 36  # widget size; leaves room around the disc for the pulse ring
+DISC_DIAMETER = 24  # WCAG 2.2 target size (2.5.8) asks for at least 24 px
 RING_PX = 2.0
 OUTLINE = QColor(0, 0, 0, 120)
 SHADOW = QColor(0, 0, 0, 55)
-FONT_PX = 11
+FONT_PX = 13
 MAX_SHOWN_COUNT = 9
 
 FRAME_MS = 33  # ~30 fps while animating
@@ -91,6 +91,13 @@ def pop_scale(elapsed_ms: float) -> float:
     return 1.0 + POP_SCALE * math.sin(math.pi * elapsed_ms / POP_MS)
 
 
+def accessible_name(state: BadgeState, count: int) -> str:
+    """What a screen reader announces for the badge."""
+    if state is BadgeState.ISSUES:
+        return f"Proofline: {count} issue{'' if count == 1 else 's'}. Click to see them."
+    return f"Proofline: {state.tooltip[:1].lower()}{state.tooltip[1:]}"
+
+
 def badge_label(state: BadgeState, count: int) -> str:
     if state is BadgeState.ISSUES:
         return str(count) if count <= MAX_SHOWN_COUNT else f"{MAX_SHOWN_COUNT}+"
@@ -132,6 +139,7 @@ class BadgeWidget(QWidget):
         self._state = state
         self._count = count
         self.setToolTip(tooltip or state.tooltip)
+        self.setAccessibleName(accessible_name(state, count))
         self._sync_timer()
         self.update()
 

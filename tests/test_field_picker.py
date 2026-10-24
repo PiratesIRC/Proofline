@@ -155,3 +155,14 @@ def test_wildcard_class_matches_any_class_and_web_classes_saved_as_wildcard():
     assert custom_field_matches(web, entries)
     assert custom_field_matches("MSEDGEWEBVIEW2.EXE|EditControl|other", entries)
     assert not custom_field_matches("msedgewebview2.exe|DocumentControl|x", entries)
+
+
+def test_only_relevant_buttons_show_and_details_start_folded(qtbot, dialog):
+    dialog.open_picker()
+    assert not dialog._add_field_button.isVisibleTo(dialog) and not dialog._add_app_button.isVisibleTo(dialog)
+    assert not dialog._details.isVisibleTo(dialog)
+    dialog.on_captured(captured("not a text control (PaneControl)"))
+    assert dialog._add_field_button.isVisibleTo(dialog) and not dialog._add_app_button.isVisibleTo(dialog)
+    dialog._details_toggle.click()
+    assert dialog._details.isVisibleTo(dialog) and dialog._copy_button.isVisibleTo(dialog)
+    assert dialog.objectName() == "uiRoot"  # styled like the rest of the app
