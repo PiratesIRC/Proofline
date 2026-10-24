@@ -72,7 +72,7 @@ choose and shows a small badge beside the field. Click the badge, click a sugges
 | **Windows** | Windows 10 version 1809 or later, or Windows 11, 64-bit |
 | **Disk space** | About 100 MB (the installed app measured 94 MB) |
 | **Administrator rights** | Not needed: the installer installs for your account only, the portable copy runs from any folder |
-| **A LanguageTool server** | One you can reach over HTTP or HTTPS: on the same PC (for example the `erikvl87/languagetool` Docker image, or the LanguageTool server `.jar` with Java 17 or newer) or on your network. See [Server](#server) |
+| **A LanguageTool server** | One you can reach over HTTP or HTTPS: on the same PC ([one Docker command](#need-a-languagetool-server), or the LanguageTool server `.jar` with Java 17 or newer) or on your network. See [Server](#server) |
 | **Network** | Your LanguageTool server. Optional: GitHub, for the daily update check, and plugin-stats.dpas.workers.dev, for the [anonymous usage counts](#anonymous-usage-counts). Both can be turned off |
 | **From source** | Python 3.13, 64-bit (3.14 also works; 3.13 is what the project is tested on), plus `requirements.txt` |
 
@@ -98,6 +98,19 @@ and **Check now** looks straight away.
 
 Coming from LanguageTool Desktop, the app's earlier name? Quit it first; Proofline moves its
 settings over on first start.
+
+### Need a LanguageTool server?
+
+With [Docker](https://www.docker.com/products/docker-desktop/) installed, one command starts a
+server on this PC that only this PC can reach:
+
+```powershell
+docker run -d --name languagetool --restart unless-stopped -p 127.0.0.1:8010:8010 erikvl87/languagetool
+```
+
+Then choose **This PC** in the welcome window (the default address
+`http://127.0.0.1:8010/v2/check`). The first start downloads about 450 MB and takes a minute.
+To serve other PCs on your network, put it behind HTTPS (see [Server](#server)).
 
 ### From source
 
@@ -192,9 +205,14 @@ All options and their `config.json` names are listed in
 The app talks to LanguageTool's HTTP API (`POST /v2/check`).
 
 - **Self-hosted (recommended):** run the LanguageTool server on this PC or your network, for
-  example with Docker (`erikvl87/languagetool`) or
+  example with Docker ([the one-line command above](#need-a-languagetool-server), image
+  [`erikvl87/languagetool`](https://hub.docker.com/r/erikvl87/languagetool)) or
   `java -cp languagetool-server.jar org.languagetool.server.HTTPServer --port 8081`.
   See <https://dev.languagetool.org/http-server>.
+- **Other PCs on your network:** publish the server through a reverse proxy with HTTPS (for
+  example Caddy or nginx) and, if it is reachable by others, a login; then use
+  `https://user:password@your-host/v2/check` in Proofline. Plain `http://` to another computer
+  sends your text unencrypted, and Proofline warns before using it.
 
 > [!WARNING]
 > **The public API is not supported for everyday use.** LanguageTool's free public API

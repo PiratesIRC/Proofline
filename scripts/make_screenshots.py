@@ -231,6 +231,50 @@ def logo() -> None:
     print("wrote logo.png")
 
 
+SOCIAL_SIZE = (1280, 640)  # GitHub's recommended social preview size, in pixels
+SOCIAL_TAGLINE = ("Grammar and spelling checking", "in every Windows app,", "against a LanguageTool", "server you control.")
+SOCIAL_FOOTER = "Free  ·  Open source (GPL-3.0)  ·  Self-hosted"
+
+
+def social_preview(popup_image: QImage) -> None:
+    """The card GitHub, Reddit and chat apps show for a link to the repo (upload it by hand:
+    repository Settings › Social preview)."""
+    width, height = SOCIAL_SIZE
+    canvas = QImage(width, height, QImage.Format.Format_ARGB32)
+    canvas.fill(QColor("#f6f8fa"))
+    p = QPainter(canvas)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor("#2e7d32"))
+    p.drawRect(QRectF(0, height - 12, width, 12))
+    p.drawPixmap(QRectF(80, 96, 112, 112).toRect(), make_icon("#2e7d32").pixmap(224, 224))
+    p.setPen(QColor("#1f2328"))
+    title = QFont("Segoe UI", 1)
+    title.setPixelSize(76)
+    title.setBold(True)
+    p.setFont(title)
+    p.drawText(QPointF(212, 182), "Proofline")
+    body = QFont("Segoe UI", 1)
+    body.setPixelSize(36)
+    p.setFont(body)
+    for index, line in enumerate(SOCIAL_TAGLINE):
+        p.drawText(QPointF(84, 292 + index * 50), line)
+    small = QFont("Segoe UI", 1)
+    small.setPixelSize(24)
+    p.setFont(small)
+    p.setPen(QColor("#57606a"))
+    p.drawText(QPointF(84, 560), SOCIAL_FOOTER)
+    popup_h = height - 96
+    popup_w = popup_image.width() * popup_h / popup_image.height()
+    target = QRectF(width - popup_w - 56, 40, popup_w, popup_h)
+    _shadow(p, target.adjusted(2, 2, -2, -2), 8)
+    p.drawImage(target, popup_image)
+    p.end()
+    canvas.save(str(OUT / "social-preview.png"))
+    print("wrote social-preview.png", width, "x", height)
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     logo()
@@ -244,6 +288,7 @@ def main() -> int:
     welcome()
     use_theme(False)
     hero(light_popup, badge_images[2])
+    social_preview(light_popup)
     return 0
 
 
