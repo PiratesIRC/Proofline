@@ -71,20 +71,33 @@ class _GuiThreadInfo(ctypes.Structure):
     ]
 
 
+_last_control: auto.Control | None = None  # monitor thread only, like every UIA object
+
+
+def last_control() -> auto.Control | None:
+    """The element the latest read_focused_field() resolved, for measuring on the same poll."""
+    return _last_control
+
+
 def read_focused_field(custom_fields: tuple[str, ...] = (), diagnose: bool = False) -> FocusResult:
     """Describe the focused element and, if it is an editable text field, snapshot it.
 
     custom_fields are field signatures the user asked to check even when they don't
     look like text boxes; diagnose adds the supported patterns for the field picker.
     """
+    global _last_control
+    _last_control = None
     try:
         focused = auto.GetFocusedControl()
         if focused is None:
             return FocusResult((), "nothing", "no focused element")
+        if focused.IsPassword:  # before looking at any ancestor: a password box is never read
+            return FocusResult(tuple(focused.GetRuntimeId() or ()), describe_control(focused), "password field")
         if custom_field_matches(_signature(focused), custom_fields):
             control = focused
         else:
             control = resolve_editable(focused)
+        _last_control = control
         is_custom = custom_field_matches(_signature(control), custom_fields)
         result = _read(control, is_custom)
         return replace(
@@ -264,6 +277,30 @@ def _caret_from_text_pattern2(control: auto.Control) -> ScreenRect | None:
     result = pattern2.pattern.GetCaretRange()
     raw_range = result[-1] if isinstance(result, tuple) else result
     return _caret_rect_from_range(raw_range) if raw_range else None
+
+
+def read_text_before_caret() -> str | None:
+    """The last read field's text from its start to the caret (the selection's start); None if unknown.
+
+    Classic Win32 edits have no TextPattern; their EM_GETSEL offsets are UTF-16 units and count a
+    RichEdit line break as one character, so they are not used here.
+    """
+    control = _last_control
+    if control is None:
+        return None
+    try:
+        text_pattern = control.GetPattern(auto.PatternId.TextPattern)
+        selections = text_pattern.GetSelection() if text_pattern is not None else None
+        if not selections:
+            return None
+        before = text_pattern.DocumentRange.Clone()
+        before.MoveEndpointByRange(
+            auto.TextPatternRangeEndpoint.End, selections[0], auto.TextPatternRangeEndpoint.Start  # library TextRange
+        )
+        return before.GetText(-1)
+    except Exception:  # COM errors when the element goes away
+        log.debug("Reading the text before the caret failed", exc_info=True)
+        return None
 
 
 def _caret_from_selection(text_pattern: object) -> ScreenRect | None:

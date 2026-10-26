@@ -13,6 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/PiratesIRC)
 [![Corrections Applied](https://img.shields.io/endpoint?url=https://plugin-stats.dpas.workers.dev/badge/proofline/corrections_applied)](#anonymous-usage-counts)
+[![AI Rephrases](https://img.shields.io/endpoint?url=https://plugin-stats.dpas.workers.dev/badge/proofline-ai/ai_rephrases)](#anonymous-usage-counts)
 [![Active Installs](https://img.shields.io/endpoint?url=https://plugin-stats.dpas.workers.dev/badge/proofline/installs)](#anonymous-usage-counts)
 
 [Download](https://github.com/PiratesIRC/Proofline/releases/latest) ·
@@ -45,11 +46,18 @@ choose and shows a small badge beside the field. Click the badge, click a sugges
   your clipboard is restored afterwards.
 - **Readable suggestions.** Each issue shows the flagged words inside their sentence, with
   Ignore for now, Add to dictionary, Turn off this rule, and Undo for anything permanent.
+- **Underlines and a card.** Flagged words get a wavy red line in apps that tell other programs
+  where each word is on screen (tested in Edge and Notepad). With the caret inside a flagged
+  word, a card opens under it with the suggestions.
 - **Your own server.** Point it at a self-hosted LanguageTool server so your text stays on your
   network. The connection test says in plain words whether checking works (green), the server
   answered but something is wrong (orange), or there is no connection (red).
 - **Keyboard friendly.** `Ctrl+Alt+J` applies the first suggestion, `Ctrl+Alt+L` checks now,
   `Ctrl+Alt+P` turns checking on or off. Record your own combinations in Settings.
+- **Optional AI rewording.** Off by default. It uses your own Claude API key. **AI Rephrase** in
+  the card under an underlined word rewrites one sentence, with the changed words in bold, and
+  only that sentence is sent. A monthly spending limit stops AI requests when the next one could
+  take the month past it. See [AI suggestions](#ai-suggestions-optional).
 - **Light and dark**, following Windows or your choice, with your accent colour.
 - **Installer or portable**, no administrator rights needed for either.
 
@@ -152,6 +160,16 @@ minutes.
 | Red badge with a number | That many issues; it pulses briefly to get your attention |
 | Brown badge with **!** | The server couldn't be reached; hover for details |
 
+Flagged words also get a wavy red line under them, in apps that tell other programs where
+each word is on screen (measured in Edge and Notepad). The lines move with the text when you
+scroll, disappear while you type, and come back after the next check. Turn them off in
+Settings › Appearance › **Underline issues in the text**.
+
+Put the caret inside an underlined word (click it, or move there with the arrow keys) and a
+small card opens under it with the suggestions, **Ignore**, **Add to dictionary** for spelling,
+and **All issues…** for the full popup. Click a suggestion to apply it. The card closes when
+the caret leaves the word.
+
 Click the badge to open the issues popup:
 
 - Each issue shows the flagged words highlighted in their sentence. Click a suggestion button to
@@ -160,6 +178,11 @@ Click the badge to open the issues popup:
   stops a word being flagged; **Turn off this rule** disables a LanguageTool rule.
 - **More options** › **Turn off in <app>** / **Turn off in this window** stop checking there.
 - Adding a word or turning something off shows a notice with **Undo**.
+- Proofline also flags characters you can't see: a zero-width space or soft hyphen inside a word,
+  text-direction controls, and unusual spaces such as a thin or em space. Placeholder characters
+  that chat and document editors add themselves are left alone. The popup shows
+  them as their code (`[U+200B]`) with a **(remove)** or **(normal space)** button. Turn this off
+  in Settings › Checking › **Flag hidden characters**.
 - Drag the popup by its heading to move it, for example out from under the Start menu. A moved popup stays open until you click **✕**: it follows the text box you type in and shows the new results after each check.
 
 ### Tray quick settings
@@ -179,6 +202,43 @@ or back on, for the app you were last typing in. Right-click the icon for the cl
 
 Change them in **Settings › Shortcuts**: click a box and press the keys.
 
+### AI suggestions (optional)
+
+Proofline can ask Claude, Anthropic's AI model, to reword a sentence. It is off until you turn
+it on, it uses your own Claude API key, and it sends text only when you click or press its
+shortcut.
+
+1. Get an API key from [console.anthropic.com](https://console.anthropic.com/).
+2. In **Settings › AI**, paste the key, click **Save**, turn on **Use AI suggestions**, and
+   click **Test**. The key is kept in Windows Credential Manager, not in the settings file.
+3. Choose a model (Haiku is the default, the fastest and cheapest) and a **Monthly spending
+   limit** (default $1.00).
+
+Then, in the card under an underlined word, click **AI Rephrase**. The card shows the sentence it
+picked and "Asking Claude...", then up to three rewordings with the changed words in bold.
+Click one to replace that sentence; nothing else in the text box changes. For a sentence with
+no underlined word, set a shortcut for **AI Rephrase the sentence at the caret** in
+**Settings › Shortcuts** (none by default), put the caret in the sentence and press it.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/ai-rephrase-light.png" width="300" alt="The card under an underlined word, with AI Rephrase rewordings of a sentence"><br><sub>AI Rephrase in the card</sub></td>
+    <td align="center"><img src="docs/images/ai-settings-light.png" width="500" alt="Settings, AI page with the switch, API key, model and monthly limit"><br><sub>Settings, AI</sub></td>
+  </tr>
+</table>
+
+- Only that one sentence is sent to Anthropic, with your key.
+- Every request is counted in `ai_usage.jsonl` (token counts and cost, never your text), and
+  **Settings › AI** shows today's and this month's totals. Once a request could take the month
+  past your limit, AI requests stop until next month or a higher limit.
+- **Cancel** hides the answer, but a request already sent still finishes and still counts
+  toward the limit.
+- If you type in the text box while Claude is answering, the answer is dropped.
+- If the Claude API rejects your key, **AI Rephrase** is hidden until you save a new key or
+  **Test** succeeds.
+- The sentence finder is simple: it can split after abbreviations such as "e.g.", so check the
+  sentence shown in the card.
+
 ### When a text box isn't checked
 
 Use **Add a text field…** (tray menu, quick settings, or **Settings › Apps & fields**) and click
@@ -194,10 +254,11 @@ Settings save as soon as you change them, except the server address (**Save**) a
 | Section | What's there |
 |---|---|
 | General | Server address (Test / Save), language, start with Windows |
-| Checking | Typing pause, minimum words, Picky mode, personal dictionary, turned-off rules (by name) and categories (checkboxes) |
+| Checking | Typing pause, minimum words, Picky mode, hidden characters, personal dictionary, turned-off rules (by name) and categories (checkboxes) |
 | Apps & fields | Add a text field, apps (pick a running app) and window titles to skip, apps to always check, custom fields |
-| Appearance | Theme (follow Windows / light / dark), accent and tray colour, badge visibility |
+| Appearance | Theme (follow Windows / light / dark), accent and tray colour, badge visibility, underlines |
 | Shortcuts | Three global shortcuts, recorded by pressing the keys |
+| AI | Use AI suggestions (on or off), the Claude API key (Save, Test), the model with its prices, the monthly spending limit, and today's and this month's usage totals |
 | Advanced | Debug mode, diagnostic report and logs, check for updates (with Check now), share anonymous usage counts, version, Help and Releases links |
 
 All options and their `config.json` names are listed in
@@ -229,7 +290,9 @@ The app talks to LanguageTool's HTTP API (`POST /v2/check`).
 ## Privacy and security
 
 - Text is sent only to the server you configure. A yellow warning appears, and you are asked to
-  confirm, if the address is plain `http://` to another computer.
+  confirm, if the address is plain `http://` to another computer. The one exception is
+  [AI suggestions](#ai-suggestions-optional): off by default, and when you turn them on, the
+  sentence you ask about is sent to Anthropic's Claude API.
 - Password fields are never read. By default the app also skips password managers, terminals,
   remote desktop and VM windows, code and spreadsheet editors, browser address bars, numeric
   fields, fields labelled like one-time codes, card numbers, SSNs, PINs, API keys or tokens, and
@@ -240,8 +303,8 @@ The app talks to LanguageTool's HTTP API (`POST /v2/check`).
   is kept out of Windows clipboard history (Win+V).
 - Settings and logs live in `%LOCALAPPDATA%\Proofline` (outside OneDrive), or in the portable
   copy's `data` folder.
-- Anonymous usage counts: the app sends the number of corrections you applied and a random id
-  to the author's counter, at most once an hour, for the badges above. No text is sent. Details
+- Anonymous usage counts: the app sends the number of corrections and AI rephrases you applied,
+  with a random id, to the author's counter, at most once an hour, for the badges above. No text is sent. Details
   and how to turn it off: [Anonymous usage counts](#anonymous-usage-counts).
 - Update check: about once a day the app asks GitHub (api.github.com) for the latest Proofline
   release. The request contains no text you typed. Turn it off in **Settings › Advanced › Check
@@ -255,6 +318,12 @@ counts the suggestions you applied from the issues popup or with `Ctrl+Alt+J`, a
 verified the text box and pasted the fix. Checks, ignored issues and corrections the app refused
 (for example because the text changed) count nothing. The same word fixed twice counts twice, so
 the figure measures fixes made, not distinct words.
+
+AI Rephrases counts the AI rewordings you chose that the app then pasted into the text box,
+under the same rules: a request you cancelled, a rewording you did not pick, or one the app
+refused to paste counts nothing. An applied rewording counts here and not under Corrections
+Applied. It is reported the same way as Corrections Applied, under its own name
+(`proofline-ai`) with its own random id, and the same setting turns both off.
 
 While the app runs, it sends its Corrections Applied total and a random id for this install to the
 author's counter at plugin-stats.dpas.workers.dev: when it starts, then on an hourly timer, and right

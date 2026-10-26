@@ -62,3 +62,11 @@ def test_no_console_handler_without_stderr(monkeypatch, logging_handlers):
     handlers = logging_handlers()
     assert len(handlers) == 1
     assert not any(type(h) is logging.StreamHandler for h in handlers)
+
+
+@pytest.mark.parametrize("name", ["anthropic._base_client", "httpx2", "httpcore2.http11", "httpx", "httpcore"])
+def test_ai_http_libraries_do_not_log_request_bodies(tmp_path, logging_handlers, name):
+    # The anthropic SDK logs the whole request, message text included, at DEBUG.
+    logging_handlers()
+    logging.getLogger(name).debug("json_data: secret typed text")
+    assert "secret typed text" not in (tmp_path / LOG_FILE_NAME).read_text(encoding="utf-8")

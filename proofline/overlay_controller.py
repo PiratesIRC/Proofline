@@ -5,14 +5,16 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 
-from PyQt6.QtCore import QObject, QPoint, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, QRect, pyqtSignal
 
 from proofline.app_names import display_name
 from proofline.badge import BADGE_SIZE, BadgeState, BadgeWidget
 from proofline.config import Config
 from proofline.dictionary import filter_matches, ignore_key
+from proofline.issue_card import IssueCard
 from proofline.lt_client import Match
 from proofline.overlay_widgets import IssuesPopup
+from proofline.rephrase import RephraseTarget
 from proofline.replace_request import ReplaceRequest
 from proofline.screen_coords import (
     ScreenInfo,
@@ -20,13 +22,23 @@ from proofline.screen_coords import (
     screen_for,
     to_logical_rect,
 )
-from proofline.text_snapshot import FieldSnapshot, word_count
+from proofline.sentences import sentence_span
+from proofline.text_snapshot import FieldSnapshot, ScreenRect, word_count
+from proofline.underline_overlay import UnderlineOverlay
+from proofline.underlines import (
+    Underlines,
+    UnderlineTarget,
+    span_at,
+    target_for,
+    underlined_matches,
+)
 
 log = logging.getLogger(__name__)
 
 BADGE_MARGIN = 4
 SINGLE_LINE_MAX_HEIGHT = 56  # taller fields are treated as multi-line
 SILENT_STATES = frozenset({BadgeState.CHECKING, BadgeState.CLEAN})
+CARD_FALLBACK_MARGIN = 400  # around the anchor when no screen holds it
 CHECKING_STATUS = "Checking…"
 TOO_SHORT_STATUS = "Nothing to check yet. Keep typing."
 NO_FIELD_STATUS = "Click in a text box to check it."
@@ -46,6 +58,8 @@ class OverlayController(QObject):
     add_word_requested = pyqtSignal(str)  # word for the personal dictionary
     disable_rule_requested = pyqtSignal(str, str)  # LanguageTool rule id, its name
     undo_requested = pyqtSignal(str, str)  # config field, value to remove again
+    underline_target_changed = pyqtSignal(object)  # UnderlineTarget | None, for the monitor
+    rephrase_requested = pyqtSignal(object)  # RephraseTarget, from the card's Rephrase link
 
     def __init__(
         self,
@@ -54,12 +68,22 @@ class OverlayController(QObject):
         popup: IssuesPopup | None = None,
         screens_provider: Callable[[], Sequence[ScreenInfo]] = current_screens,
         app_name_provider: AppNameProvider = friendly_app_name,
+        underlines: UnderlineOverlay | None = None,
+        card: IssueCard | None = None,
+        ai_available: Callable[[], bool] = lambda: False,
     ) -> None:
         super().__init__()
         self._config_provider = config_provider
         self._app_name_provider = app_name_provider
         self._badge = badge or BadgeWidget()
         self._popup = popup or IssuesPopup()
+        self._underlines = underlines or UnderlineOverlay()
+        self._target: UnderlineTarget | None = None
+        self._measured: Underlines | None = None  # the latest rectangles for self._target
+        self._card = card or IssueCard()
+        self._card_held = False  # a rephrase owns the card
+        self._card_word: tuple[QRect, QRect] | None = None  # logical word rect and bounds of the card
+        self._ai_available = ai_available
         self._screens_provider = screens_provider
         self._snapshot: FieldSnapshot | None = None
         self._server_matches: tuple[Match, ...] = ()  # as returned by the server
@@ -77,6 +101,25 @@ class OverlayController(QObject):
         self._popup.add_word_requested.connect(self._on_add_word)
         self._popup.disable_rule_requested.connect(self._on_disable_rule)
         self._popup.undo_requested.connect(self.undo_requested.emit)
+        self._card.replacement_chosen.connect(self._on_replacement_chosen)
+        self._card.ignore_requested.connect(self._on_ignore)
+        self._card.add_word_requested.connect(self._on_add_word)
+        self._card.all_issues_requested.connect(self._show_popup)
+        self._card.rephrase_requested.connect(self._on_rephrase_link)
+
+    @property
+    def card(self) -> IssueCard:
+        return self._card
+
+    def hold_card(self, held: bool) -> None:
+        """While held, nothing here hides or replaces the card; releasing it refreshes."""
+        self._card_held = held
+        if not held:
+            self.refresh()
+
+    def _hide_card(self) -> None:
+        if not self._card_held:
+            self._card.hide()
 
     def on_field_changed(self, snapshot: FieldSnapshot | None) -> None:
         previous = self._snapshot
@@ -84,6 +127,7 @@ class OverlayController(QObject):
         if snapshot is None:
             self._server_matches = ()
             self._matches = ()
+            self._sync_underlines()
             self._badge.hide()
             self._release_popup(NO_FIELD_STATUS)
             return
@@ -143,6 +187,8 @@ class OverlayController(QObject):
 
     def refresh(self) -> None:
         """Re-place and redraw the badge, e.g. after the caret moved or settings changed."""
+        self._sync_underlines()
+        self._update_card()
         snapshot = self._snapshot
         show_silent = self._config_provider().badge_always_visible
         if snapshot is None or (self._state in SILENT_STATES and not show_silent):
@@ -156,6 +202,101 @@ class OverlayController(QObject):
         self._badge.move(badge_position(snapshot, self._screens_provider()))
         self._badge.show()
         self._badge.raise_()
+
+    def _sync_underlines(self) -> None:
+        """Tell the monitor which spans to measure; hide the lines when there are none."""
+        wanted = self._state is BadgeState.ISSUES and self._config_provider().show_underlines
+        target = target_for(self._snapshot, self._matches) if wanted else None
+        if target == self._target:
+            return
+        self._target = target
+        self._measured = None
+        if target is None:
+            self._underlines.hide()
+            self._hide_card()
+        self.underline_target_changed.emit(target)
+
+    def on_underlines(self, underlines: Underlines | None) -> None:
+        """Draw what the monitor measured, if it still belongs to the current target."""
+        if underlines is None or not underlines.matches(self._target):
+            self._measured = None
+            self._underlines.hide()
+            self._hide_card()
+            return
+        self._measured = underlines
+        screens = self._screens_provider()
+        words = [to_logical_rect(rect, screens) for rects in underlines.rects for rect in rects]
+        self._underlines.show_underlines(to_logical_rect(underlines.field_rect, screens), words)
+        if self._popup.isVisible():
+            self._popup.raise_()  # the lines must not draw over the list of issues
+        self._badge.raise_()
+        self._update_card()
+
+    def _update_card(self) -> None:
+        """Show the card for the flagged word holding the caret; hide it otherwise."""
+        if self._card_held:
+            return
+        found = self._match_at_caret()
+        if found is None or self._popup.isVisible():
+            self._card.hide()
+            return
+        match, word = found
+        logical, bounds = self._logical_and_bounds(word)
+        self._card_word = (logical, bounds)
+        self._card.show_for(match, logical, bounds, self._config_provider().tray_color, self._ai_available())
+
+    def _logical_and_bounds(self, rect: ScreenRect) -> tuple[QRect, QRect]:
+        """rect in logical coordinates, and the available area of the screen holding it."""
+        screens = self._screens_provider()
+        screen = screen_for(rect.left, rect.top, screens)
+        logical = to_logical_rect(rect, screens)
+        m = CARD_FALLBACK_MARGIN
+        return logical, screen.available if screen else logical.adjusted(-m, -m, m, m)
+
+    def _on_rephrase_link(self, match: Match) -> None:
+        snapshot, placed = self._snapshot, self._card_word
+        if snapshot is None or placed is None:
+            return
+        target = self._target_at(snapshot, match.offset, *placed)
+        if target is not None:
+            self.rephrase_requested.emit(target)
+
+    def rephrase_target(
+        self, snapshot: FieldSnapshot, offset: int, anchor: ScreenRect | None
+    ) -> RephraseTarget | None:
+        """The sentence at offset, with the card under anchor (or the field's corner); None if blank."""
+        if anchor is not None:
+            logical, bounds = self._logical_and_bounds(anchor)
+        else:
+            logical, bounds, _accent = self.field_anchor(snapshot)
+        return self._target_at(snapshot, offset, logical, bounds)
+
+    def _target_at(
+        self, snapshot: FieldSnapshot, offset: int, anchor: QRect, bounds: QRect
+    ) -> RephraseTarget | None:
+        span = sentence_span(snapshot.text, offset)
+        if span is None:
+            return None
+        return RephraseTarget(snapshot, span[0], span[1], anchor, bounds, self._config_provider().tray_color)
+
+    def field_anchor(self, snapshot: FieldSnapshot) -> tuple[QRect, QRect, str]:
+        """A zero-size anchor at the field's top-left corner, its screen's bounds, the accent."""
+        corner = ScreenRect(snapshot.field_rect.left, snapshot.field_rect.top,
+                            snapshot.field_rect.left, snapshot.field_rect.top)
+        logical, bounds = self._logical_and_bounds(corner)
+        return logical, bounds, self._config_provider().tray_color
+
+    def _match_at_caret(self) -> tuple[Match, ScreenRect] | None:
+        snapshot, measured = self._snapshot, self._measured
+        if snapshot is None or snapshot.caret_rect is None or measured is None:
+            return None
+        if not measured.matches(self._target) or not self._target.applies_to(snapshot):
+            return None
+        found = span_at(measured, snapshot.caret_rect)
+        if found is None:
+            return None
+        index, word = found
+        return underlined_matches(self._matches)[index], word
 
     def _set_state(self, state: BadgeState, message: str = "") -> None:
         self._state = state
@@ -171,6 +312,7 @@ class OverlayController(QObject):
         snapshot = self._snapshot
         if snapshot is None:
             return
+        self._hide_card()
         screen = screen_for(snapshot.field_rect.left, snapshot.field_rect.top, self._screens_provider())
         bounds = screen.available if screen else self._badge.geometry()
         self._popup.show_issues(
@@ -181,10 +323,14 @@ class OverlayController(QObject):
     def _on_replacement_chosen(self, match: Match, replacement: str) -> None:
         if self._snapshot is None:
             return
+        self.request_replace(ReplaceRequest.build(self._snapshot, match, replacement))
+
+    def request_replace(self, request: ReplaceRequest) -> None:
+        """Hand a correction to the monitor's checked replace path, as the card and popup do."""
         self._release_popup(CHECKING_STATUS)
         self._set_state(BadgeState.CHECKING)
         self.refresh()
-        self.replace_requested.emit(ReplaceRequest.build(self._snapshot, match, replacement))
+        self.replace_requested.emit(request)
 
     def apply_first_suggestion(self) -> bool:
         """Keyboard alternative to the popup: apply the first suggestion of the first issue that has one."""
@@ -227,6 +373,7 @@ class OverlayController(QObject):
         self._server_matches = ()
         self._matches = ()
         self._set_state(BadgeState.CHECKING)
+        self._sync_underlines()
         self._badge.hide()
         self._popup.show_notice_only(message, field, value)
 

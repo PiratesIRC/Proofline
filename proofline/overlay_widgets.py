@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 
 from proofline.config import DEFAULT_TRAY_COLOR
 from proofline.dictionary import is_spelling_match
+from proofline.hidden_chars import codepoint_label, is_hidden_match
 from proofline.lt_client import Match
 from proofline.non_activating import make_non_activating
 from proofline.ui_kit import Tokens, apply_style, current_tokens, link_button
@@ -54,6 +55,7 @@ IGNORE_TEXT = "Ignore for now"
 ADD_WORD_TEXT = "Add to dictionary"
 DISABLE_RULE_TEXT = "Turn off this rule"
 UNDO_TEXT = "Undo"
+REMOVE_TEXT = "(remove)"
 NO_ISSUES_TEXT = "No issues found."
 DRAG_TOOLTIP = "Drag to move. A moved popup stays open until you close it."
 WHITESPACE = re.compile(r"\s+")
@@ -79,6 +81,15 @@ def issue_count_text(count: int) -> str:
     if count == 0:
         return "No issues"
     return f"{count} issue" + ("" if count == 1 else "s")
+
+
+def replacement_label(replacement: str) -> str:
+    """Button text; empty and all-space replacements would otherwise show a blank button."""
+    if not replacement:
+        return REMOVE_TEXT
+    if not replacement.strip():
+        return "(normal space)" if len(replacement) == 1 else f"({len(replacement)} normal spaces)"
+    return replacement
 
 
 def match_excerpt(text: str, match: Match, context: int = EXCERPT_CONTEXT_CHARS) -> tuple[str, str, str] | None:
@@ -392,6 +403,8 @@ class IssuesPopup(QWidget):
         flagged_style = f"color: {self._tokens.error_text}; font-weight: 600; text-decoration: underline;"
         parts = match_excerpt(self._text, match)
         before, flagged, after = parts if parts else ("", WHITESPACE.sub(" ", match.error_text), "")
+        if is_hidden_match(match):
+            flagged = codepoint_label(match.error_text)  # the flagged characters cannot be seen
         label = QLabel(
             f"{html.escape(before, quote=False)}<span style='{flagged_style}'>{html.escape(flagged, quote=False)}"
             f"</span>{html.escape(after, quote=False)}"
@@ -406,7 +419,7 @@ class IssuesPopup(QWidget):
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(6)
         for index, replacement in enumerate(match.replacements):
-            button = QPushButton(replacement or "(remove)")
+            button = QPushButton(replacement_label(replacement))
             button.setObjectName("accentButton")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(

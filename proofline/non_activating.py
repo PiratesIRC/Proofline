@@ -13,14 +13,20 @@ WS_EX_NOACTIVATE = 0x08000000
 WS_EX_TOOLWINDOW = 0x00000080
 
 
-def make_non_activating(widget: QWidget) -> None:
-    """Frameless, topmost, no taskbar entry, and never activated by clicks."""
-    widget.setWindowFlags(
+def make_non_activating(widget: QWidget, click_through: bool = False) -> None:
+    """Frameless, topmost, no taskbar entry, and never activated by clicks.
+
+    click_through: mouse input passes to the window underneath (the underline overlay).
+    """
+    flags = (
         Qt.WindowType.FramelessWindowHint
         | Qt.WindowType.Tool
         | Qt.WindowType.WindowStaysOnTopHint
         | Qt.WindowType.WindowDoesNotAcceptFocus
     )
+    if click_through:
+        flags |= Qt.WindowType.WindowTransparentForInput
+    widget.setWindowFlags(flags)
     widget.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
     # Must be set before winId() creates the native window, or Windows never makes
     # it layered and the transparent areas render black.

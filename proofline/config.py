@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
+from proofline.ai_prices import DEFAULT_MODEL, MODEL_IDS
+
 log = logging.getLogger(__name__)
 
 APP_DIR_NAME = "Proofline"
@@ -92,7 +94,8 @@ DEFAULT_HOTKEY_TOGGLE = "ctrl+alt+p"
 DEFAULT_HOTKEY_CHECK_NOW = "ctrl+alt+l"
 DEFAULT_HOTKEY_FIX_FIRST = "ctrl+alt+j"
 BOOL_FIELDS = ("enabled", "debug_mode", "badge_always_visible", "picky", "start_with_windows", "check_for_updates",
-               "share_usage_counts", "welcome_shown")
+               "share_usage_counts", "welcome_shown", "flag_hidden_characters", "show_underlines", "ai_enabled")
+AI_CAP_CENTS_RANGE = (10, 10_000)  # $0.10 to $100 a month
 LIST_FIELDS = (
     "disabled_apps",
     "disabled_windows",
@@ -107,7 +110,7 @@ LIST_FIELDS = (
 FIELD_SIGNATURE_SEPARATOR = "|"
 FIELD_SIGNATURE_PARTS = 3
 ANY_CLASS = "*"
-HOTKEY_FIELDS = ("hotkey_toggle", "hotkey_check_now", "hotkey_fix_first")
+HOTKEY_FIELDS = ("hotkey_toggle", "hotkey_check_now", "hotkey_fix_first", "hotkey_ai_rephrase")
 
 # Recommended exclusions: places where checking is a security risk or just noise.
 # They are the defaults for new installs and can be re-added from Settings.
@@ -201,15 +204,21 @@ class Config:
     disabled_apps: tuple[str, ...] = DEFAULT_DISABLED_APPS
     disabled_windows: tuple[str, ...] = DEFAULT_DISABLED_WINDOWS
     debug_mode: bool = False
+    show_underlines: bool = True  # wavy lines under flagged words, where the app reports their position
     badge_always_visible: bool = True
     personal_dictionary: tuple[str, ...] = ()
     disabled_rules: tuple[str, ...] = ()
     disabled_categories: tuple[str, ...] = ()
     picky: bool = False
+    flag_hidden_characters: bool = True  # invisible characters and unusual spaces (hidden_chars)
+    ai_enabled: bool = False  # Claude API suggestions, sent only when asked; the key is in Credential Manager
+    ai_model: str = DEFAULT_MODEL
+    ai_monthly_cap_cents: int = 100  # AI requests stop once this month's recorded cost would pass it
     start_with_windows: bool = False
     hotkey_toggle: str = DEFAULT_HOTKEY_TOGGLE
     hotkey_check_now: str = DEFAULT_HOTKEY_CHECK_NOW
     hotkey_fix_first: str = DEFAULT_HOTKEY_FIX_FIRST  # keyboard alternative to clicking a suggestion
+    hotkey_ai_rephrase: str = ""  # AI: rephrase the sentence at the caret; off by default
     theme: str = "auto"
     tray_color: str = DEFAULT_TRAY_COLOR
     min_words: int = DEFAULT_MIN_WORDS
@@ -298,6 +307,7 @@ def validate(config: Config) -> Config:
     if type(config.min_words) is not int or not low <= config.min_words <= high:
         raise ConfigError(f"Minimum words must be between {low} and {high}.")
     _validate_paused_until(config.paused_until)
+    _validate_ai(config)
     if config.theme not in THEMES:
         raise ConfigError(f"Theme must be one of: {', '.join(THEMES)}.")
     if not isinstance(config.tray_color, str) or not HEX_COLOR.fullmatch(config.tray_color):
@@ -309,6 +319,14 @@ def validate(config: Config) -> Config:
         **{name: _string_tuple(getattr(config, name), name) for name in LIST_FIELDS},
         **{name: getattr(config, name).strip().lower() for name in HOTKEY_FIELDS},
     )
+
+
+def _validate_ai(config: Config) -> None:
+    if config.ai_model not in MODEL_IDS:
+        raise ConfigError(f"AI model must be one of: {', '.join(MODEL_IDS)}.")
+    low, high = AI_CAP_CENTS_RANGE
+    if type(config.ai_monthly_cap_cents) is not int or not low <= config.ai_monthly_cap_cents <= high:
+        raise ConfigError(f"Monthly AI limit must be between {low} and {high} cents.")
 
 
 def _validate_paused_until(value: object) -> None:
@@ -346,6 +364,10 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         return Config()
 
     known = {f.name for f in fields(Config)}
+    if raw.get("ai_model", DEFAULT_MODEL) not in MODEL_IDS:
+        # A later release can drop a model from the price table; don't reset everything for it.
+        log.warning("AI model %r is no longer offered; using %s", raw["ai_model"], DEFAULT_MODEL)
+        raw["ai_model"] = DEFAULT_MODEL
     try:
         return validate(Config(**{k: v for k, v in raw.items() if k in known}))
     except ConfigError as exc:

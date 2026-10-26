@@ -144,3 +144,8 @@ def test_add_to_dictionary_only_offered_for_spelling(qtbot):
     assert labels.count("Add to dictionary") == 1
     assert labels.count("Ignore for now") == 2
     assert labels.count("Turn off this rule") == 2
+
+
+def test_integration_registers_the_ai_rephrase_hotkey(integration):
+    integration.apply(Config(hotkey_ai_rephrase="ctrl+alt+r"))
+    assert integration.fake_hotkeys.registered["ai_rephrase"] == "ctrl+alt+r"

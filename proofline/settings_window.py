@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from proofline.ai_settings_page import AiPage
 from proofline.config import (
     Config,
     ConfigError,
@@ -73,9 +74,10 @@ class SettingsWindow(QWidget):
         self.apps = AppsPage()
         self.appearance = AppearancePage()
         self.shortcuts = ShortcutsPage()
+        self.ai = AiPage()
         self.advanced = AdvancedPage(config_provider, log_dir)
         self.pages: tuple[Page, ...] = (
-            self.general, self.checking, self.apps, self.appearance, self.shortcuts, self.advanced,
+            self.general, self.checking, self.apps, self.appearance, self.shortcuts, self.ai, self.advanced,
         )
         for page in self.pages:
             page.changed.connect(self.apply_changes)

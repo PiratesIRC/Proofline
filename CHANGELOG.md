@@ -2,6 +2,38 @@
 
 All notable changes to this project.
 
+## 0.3.0 (2026-10-26)
+
+### New
+- Optional AI suggestions through Claude, Anthropic's AI model, with your own API key. Off by
+  default. **Settings › AI** holds the on/off switch, the key (kept in Windows Credential
+  Manager) with a Test button, the model, a monthly spending limit (default $1.00), and
+  today's and this month's totals.
+- **AI Rephrase** in the card under an underlined word: up to three rewordings of that sentence,
+  changed words in bold. Choosing one replaces only that sentence. Only the sentence is sent.
+- A shortcut to rephrase the sentence at the caret, for sentences with no underlined word. Set
+  it in **Settings › Shortcuts** (none by default).
+- An AI Rephrases badge in the README: the number of AI rewordings applied, counted like
+  Corrections Applied and turned off by the same setting.
+- Wavy red lines under flagged words, drawn over the text box in apps that report where each
+  word is on screen (tested in Edge and Notepad). They follow the text when it scrolls, disappear
+  while you type, and return after the next check. Clicks go through to the text box.
+  Settings › Appearance › Underline issues in the text turns them off.
+- A card under an underlined word while the caret is inside it: up to three suggestions (the
+  first highlighted), Ignore, Add to dictionary for spelling, and All issues… for the popup.
+- Hidden characters are flagged: a zero-width space, soft hyphen or direction mark inside a word,
+  text-direction controls anywhere, and unusual spaces (thin, em, narrow no-break, ideographic and
+  similar). Placeholders that web editors (Slate, Quill, CKEditor 5) insert themselves are not. The
+  popup shows each as its code, such as `[U+200B]`, with a fix that removes it or puts a normal
+  space in its place. On by default; Settings › Checking › Flag hidden characters turns it
+  off. LanguageTool does not flag these itself.
+
+### Fixed
+- A password field is recognised as soon as it has focus, before Proofline looks at the
+  text box around it, so its text is never read.
+- A suggestion that removes text (**(remove)**) now deletes the selection with the Delete key
+  instead of pasting an empty clipboard.
+
 ## 0.2.2 (2026-10-25)
 
 ### New

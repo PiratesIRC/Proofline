@@ -32,9 +32,11 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 APP = QApplication(sys.argv[:1])
 
-from proofline import overlay_widgets, tray_flyout, ui_kit
+from proofline import issue_card, overlay_widgets, tray_flyout, ui_kit
+from proofline.ai_usage import Totals
 from proofline.badge import BadgeState, BadgeWidget
 from proofline.config import Config
+from proofline.issue_card import IssueCard
 from proofline.lt_client import Match
 from proofline.server_test import READY
 from proofline.settings_window import SettingsWindow
@@ -58,7 +60,7 @@ STORAGE_HINT = Path("%LOCALAPPDATA%") / "Proofline" / "logs"  # shown instead of
 
 def use_theme(dark: bool) -> None:
     tokens = ui_kit.DARK if dark else ui_kit.LIGHT
-    for module in (ui_kit, overlay_widgets, tray_flyout):
+    for module in (ui_kit, overlay_widgets, tray_flyout, issue_card):
         module.current_tokens = lambda t=tokens: t
 
 
@@ -99,6 +101,33 @@ def settings(dark: bool) -> None:
     window.set_update_status("You are up to date (v0.1.0)")
     window.nav.setCurrentRow(window.pages.index(window.advanced))
     save(window, f"settings-advanced-{'dark' if dark else 'light'}.png")
+    window.close()
+
+
+AI_SENTENCE = "Me and him goes to the shop every morning."
+AI_OPTIONS = ("He and I go to the shop every morning.", "He and I walk to the shop every morning.")
+AI_ACCENT = "#2e7d32"
+
+
+def ai_rephrase(dark: bool) -> None:
+    """The issue card after AI Rephrase: the rewordings, changed words in bold."""
+    use_theme(dark)
+    card = IssueCard()
+    card.show_waiting(AI_SENTENCE, QRect(40, 40, 30, 20), QRect(0, 0, 1920, 1080), AI_ACCENT)
+    card.show_options(AI_OPTIONS, AI_SENTENCE)
+    save(card, f"ai-rephrase-{'dark' if dark else 'light'}.png")
+    card.hide()
+
+
+def ai_settings(dark: bool) -> None:
+    """The AI page with a saved key (the key itself is never read: no Credential Manager access)."""
+    use_theme(dark)
+    window = SettingsWindow(lambda: Config(ai_enabled=True), lambda config: config, STORAGE_HINT)
+    window.show_settings()
+    window.nav.setCurrentRow(window.pages.index(window.ai))
+    window.ai.set_key_saved(True)
+    window.ai.show_totals(Totals(today=0.0001, month=0.0021, requests_month=12))
+    save(window, f"ai-settings-{'dark' if dark else 'light'}.png")
     window.close()
 
 
@@ -283,6 +312,8 @@ def main() -> int:
     for dark in (False, True):
         flyout(dark)
         settings(dark)
+        ai_rephrase(dark)
+        ai_settings(dark)
     badge_images = badges()
     badge_strip(badge_images)
     welcome()

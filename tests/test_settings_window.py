@@ -73,6 +73,7 @@ def test_opening_loads_values_without_saving(window, store):
         (lambda w: w.checking._delay.setCurrentIndex(w.checking._delay.findData(2000)), "debounce_ms", 2000),
         (lambda w: w.checking._min_words.setValue(3), "min_words", 3),
         (lambda w: w.checking._picky.setChecked(True), "picky", True),
+        (lambda w: w.checking._hidden.setChecked(False), "flag_hidden_characters", False),
         (lambda w: w.checking._words.add_item("Dispatcharr"), "personal_dictionary", ("Dispatcharr",)),
         (lambda w: w.checking._rules.add_item("WHITESPACE_RULE"), "disabled_rules", ("WHITESPACE_RULE",)),
         (lambda w: w.checking._categories.box("STYLE").click(), "disabled_categories", ("STYLE",)),
@@ -80,6 +81,7 @@ def test_opening_loads_values_without_saving(window, store):
         (lambda w: w.appearance._theme.setCurrentIndex(w.appearance._theme.findData("dark")), "theme", "dark"),
         (lambda w: w.appearance._tray_color.setCurrentIndex(1), "tray_color", "#1565c0"),
         (lambda w: w.appearance._badge.setChecked(False), "badge_always_visible", False),
+        (lambda w: w.appearance._underlines.setChecked(False), "show_underlines", False),
         (lambda w: w.advanced._debug.setChecked(True), "debug_mode", True),
         (lambda w: w.advanced._updates.setChecked(False), "check_for_updates", False),
         (lambda w: w.advanced._share_usage.setChecked(False), "share_usage_counts", False),
@@ -374,3 +376,17 @@ def test_about_card_has_a_help_link(window):
 
 def test_about_card_has_a_whats_new_link(window):
     assert "CHANGELOG.md" in window.advanced.changelog_link.text()
+
+
+def test_ai_page_is_listed_between_shortcuts_and_advanced(window):
+    titles = [window.nav.item(i).text() for i in range(window.nav.count())]
+    assert titles.index("AI") == titles.index("Shortcuts") + 1
+    assert titles.index("Advanced") == titles.index("AI") + 1
+
+
+def test_shortcuts_page_has_the_ai_rephrase_row(window, store):
+    edit = window.shortcuts._edits["hotkey_ai_rephrase"]
+    assert edit.hotkey() == ""
+    edit.set_hotkey("ctrl+alt+r")
+    window.shortcuts.apply_shortcuts()
+    assert store.config.hotkey_ai_rephrase == "ctrl+alt+r"

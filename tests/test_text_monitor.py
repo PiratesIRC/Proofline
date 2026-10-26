@@ -203,3 +203,83 @@ def test_focus_changed_emitted_on_new_focus_or_status(qtbot, make_monitor):
     qtbot.waitUntil(lambda: len(seen) == 2)
     qtbot.wait(50)
     assert len(seen) == 2  # no repeats while nothing changes
+
+
+def _caret_monitor(reader, caret_reader):
+    return TextMonitor(FAST_CONFIG, reader=reader, replacer=FakeReplacer(), poll_interval_s=FAST_POLL_S,
+                       caret_reader=caret_reader)
+
+
+def test_caret_offset_is_the_length_of_the_text_before_the_caret(qtbot):
+    snap = snapshot(text="Hello there. Bye.")
+    monitor = _caret_monitor(ScriptedReader(focus_result(snap)), lambda: "Hello th")
+    try:
+        monitor.start()
+        with qtbot.waitSignal(monitor.caret_offset_ready, timeout=1000) as blocker:
+            monitor.request_caret_offset()
+    finally:
+        monitor.stop()
+    assert blocker.args == [snap, 8]
+
+
+@pytest.mark.parametrize("before_caret", ["Something else", None])
+def test_caret_text_that_does_not_match_gives_none(qtbot, before_caret):
+    snap = snapshot(text="Hello there. Bye.")
+    monitor = _caret_monitor(ScriptedReader(focus_result(snap)), lambda: before_caret)
+    try:
+        monitor.start()
+        with qtbot.waitSignal(monitor.caret_offset_ready, timeout=1000) as blocker:
+            monitor.request_caret_offset()
+    finally:
+        monitor.stop()
+    assert blocker.args == [snap, None]
+
+
+class FirstPollHasNoField:
+    """No usable field on the first poll (password field, excluded app), a normal field after."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        return focus_result(None, reason="skipped") if self.calls == 1 else focus_result()
+
+
+def test_caret_request_without_a_field_is_dropped(qtbot):
+    reader, caret_calls, emitted = FirstPollHasNoField(), [], []
+    monitor = _caret_monitor(reader, lambda: caret_calls.append(1) or "This")
+    monitor.caret_offset_ready.connect(lambda *args: emitted.append(args))
+    monitor.request_caret_offset()  # pressed before the first poll, which finds no field
+    try:
+        monitor.start()
+        qtbot.waitUntil(lambda: reader.calls >= 6, timeout=2000)
+    finally:
+        monitor.stop()
+    assert emitted == [] and caret_calls == []
+
+
+class FirstPollFails:
+    """The first read raises (the element vanished); a normal field after."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("element went away")
+        return focus_result()
+
+
+def test_caret_request_is_dropped_when_the_read_fails(qtbot):
+    reader, emitted = FirstPollFails(), []
+    monitor = _caret_monitor(reader, lambda: "This")
+    monitor.caret_offset_ready.connect(lambda *args: emitted.append(args))
+    monitor.request_caret_offset()  # pressed before the first poll, whose read fails
+    try:
+        monitor.start()
+        qtbot.waitUntil(lambda: reader.calls >= 6, timeout=2000)
+    finally:
+        monitor.stop()
+    assert emitted == []

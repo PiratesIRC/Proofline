@@ -42,14 +42,15 @@ immutable `Config` dataclass: every change creates a new object, saves it, then
 | Entry point and wiring | `main.py`, `app.py`, `app_identity.py` (AppUserModelID for notifications) |
 | Configuration | `config.py` (dataclass, validation, defaults, JSON I/O), `logging_setup.py` |
 | Reading fields | `text_monitor.py` (thread, debounce, capture mode), `uia_reader.py` (UIA), `win32_edit.py` (classic Edit/RichEdit fallback), `field_filters.py` (address bars, numeric, sensitive labels), `setup_hints.py`, `text_snapshot.py` (plain data types) |
-| Checking | `checker.py`, `lt_client.py` (HTTP API, UTF-16 offset mapping), `dictionary.py`, `health.py` (server health, outage notifications), `server_test.py` (Settings connection test) |
-| Overlay | `overlay_controller.py`, `badge.py`, `overlay_widgets.py` (issues popup, Undo notice), `app_names.py` (friendly app names), `non_activating.py`, `screen_coords.py` (physical → logical pixels) |
+| Checking | `checker.py`, `lt_client.py` (HTTP API, UTF-16 offset mapping), `dictionary.py`, `hidden_chars.py` (local invisible-character and unusual-space matches, merged after the server answers), `health.py` (server health, outage notifications), `server_test.py` (Settings connection test) |
+| Overlay | `overlay_controller.py`, `badge.py`, `overlay_widgets.py` (issues popup, Undo notice), `underlines.py` + `underline_rects.py` + `underline_overlay.py` (wavy lines under flagged words), `issue_card.py` (card at the word holding the caret), `app_names.py` (friendly app names), `non_activating.py`, `screen_coords.py` (physical → logical pixels) |
 | Corrections | `replace_request.py`, `text_replace.py`, `clipboard.py` |
 | Tray and quick settings | `tray.py`, `tray_flyout.py`, `quick_settings.py`, `window_corners.py` |
 | Settings UI | `settings_window.py`, `settings_pages.py`, `settings_widgets.py` (category checklist, shortcut recorder, running-app picker, server status line), `ui_kit.py` (cards, switches, info bars, theme tokens), `list_editor.py`, `field_picker.py`, `welcome.py` (first-run window) |
 | Desktop integration | `integration.py`, `theme.py`, `autostart.py`, `hotkeys.py` |
 | Diagnostics | `diagnostics.py`, `probe.py` |
 | Usage counts | `usage.py` (ledger, Windows lock, reporting points), `usage_client.py` (vendored from plugin-stats, pinned in `scripts/client_manifest.json`; never edit) |
+| AI assist (Claude API, on request only) | `ai_prices.py` (models and prices), `ai_usage.py` (`ai_usage.jsonl` ledger, monthly totals, cap check), `ai_keys.py` (API key in Windows Credential Manager), `ai_client.py` (one structured-output request through the `anthropic` SDK, error kinds), `ai_service.py` (one request at a time, refusals, records cost; HTTP on the Qt thread pool), `ai_settings_page.py` + `ai_setup.py` (Settings, AI), `sentences.py` (the sentence at an offset), `ai_jobs.py` (each job's prompt, schema and answer cleaning), `ai_diff.py` (changed words in bold), `rephrase.py` (one rephrase at a time in the card; drops stale answers) |
 | Update check | `update_check.py` (GitHub latest release, cached in `version_check.json`, background refresh) |
 | Rename migration | `legacy.py` (moves settings and removes registry entries from the LanguageTool Desktop name) |
 | Packaging | `packaging/Proofline.spec`, `packaging/build.ps1`, `packaging/make_icon.py` |
@@ -87,6 +88,10 @@ render black.
 **Flyout corners.** The quick-settings flyout is opaque on purpose: `window_corners` asks DWM
 for Windows 11 rounded corners, border and shadow, which DWM only gives non-layered windows.
 On Windows 10 the request fails quietly and the corners stay square.
+
+**Underlines.** After a check, `OverlayController` sends an `UnderlineTarget` (field id, checked text, spans) to `TextMonitor.set_underline_target`. On every poll while the field still holds that text, the monitor measures the spans with `underline_rects.measure` (on its own thread, using the element `uia_reader.last_control()` resolved in the same poll) and emits `underlines_changed` when the rectangles differ, so scrolling is followed within one poll. `clean_rects` clips to the field and drops slivers under 3 px, which Edge returns for scrolled-out text and line starts. `UnderlineOverlay` is non-activating and click-through (`make_non_activating(click_through=True)`).
+
+**Card.** `OverlayController._update_card` runs on every caret move and every new measurement: `underlines.span_at` finds the measured word holding the snapshot's caret (not the position just after the last letter), and span i maps to `underlined_matches(matches)[i]`. The card hides while the popup is open and whenever the target changes. Its buttons reuse the popup's handlers (replace, ignore, add word, show popup).
 
 **Pinned popup.** Dragging the popup sets `IssuesPopup.is_pinned` (reset on hide). `OverlayController._release_popup` then shows a status line (`show_status`) instead of hiding it when the field or its text changes; `_refit` leaves a pinned popup where it was dropped. Corrections stay safe because the popup lists issues only for the current snapshot.
 

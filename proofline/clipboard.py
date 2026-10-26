@@ -25,6 +25,7 @@ OPEN_RETRY_DELAY_S = 0.02
 PASTE_SETTLE_S = 0.3  # time the target app needs to read the clipboard after Ctrl+V
 VK_CONTROL = 0x11
 VK_V = 0x56
+VK_DELETE = 0x2E
 GDI_HANDLE_FORMATS = frozenset(
     {
         win32con.CF_BITMAP,
@@ -113,6 +114,11 @@ def send_ctrl_v() -> None:
     win32api.keybd_event(VK_V, 0, 0, 0)
     win32api.keybd_event(VK_V, 0, win32con.KEYEVENTF_KEYUP, 0)
     win32api.keybd_event(VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
+
+
+def send_delete() -> None:
+    win32api.keybd_event(VK_DELETE, 0, 0, 0)
+    win32api.keybd_event(VK_DELETE, 0, win32con.KEYEVENTF_KEYUP, 0)
 
 
 def paste_text(text: str, send_keys: Callable[[], None] = send_ctrl_v) -> None:

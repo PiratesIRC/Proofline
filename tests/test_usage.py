@@ -5,12 +5,17 @@ import pytest
 
 from proofline.config import Config
 from proofline.usage import (
+    AI_COUNTER,
+    AI_LABEL,
+    AI_PLUGIN,
     COUNTER,
     LABEL,
     PLUGIN,
     UsageReporting,
     ledger_total,
+    make_ai_reporter,
     make_reporter,
+    record_ai_rephrase,
     record_correction,
     usage_settings,
 )
@@ -63,9 +68,11 @@ class FakeReporter:
             raise self.error
 
 
-def reporting(config, reporter, record=lambda: True):
+def reporting(config, reporter, record=lambda: True, ai_reporter=None, record_ai=lambda: True):
     holder = {"config": config}
-    return UsageReporting(lambda: holder["config"], reporter=reporter, record=record), holder
+    usage = UsageReporting(lambda: holder["config"], reporter=reporter, record=record,
+                           ai_reporter=ai_reporter or FakeReporter(), record_ai=record_ai)
+    return usage, holder
 
 
 def test_start_reports_once_with_the_live_settings():
@@ -129,3 +136,35 @@ def test_real_client_sends_the_ledger_total_on_windows_and_deletes_on_opt_out(tm
     share["on"] = False
     reporter.report({"share_usage_counts": False})
     assert sent[-1][0] == "DELETE" and not (tmp_path / "usage" / "proofline" / "install_id").exists()
+
+
+def test_ai_reporter_matches_its_worker_allowlist_entry(tmp_path):
+    reporter = make_ai_reporter(dict, ledger=tmp_path / "a.jsonl", data_dir=tmp_path / "usage")
+    # plugin-stats worker/src/config.js: "proofline-ai": { counter: "ai_rephrases", ... }
+    assert (reporter.plugin, reporter.counter, reporter.label) == ("proofline-ai", "ai_rephrases", "AI Rephrases")
+    assert (AI_PLUGIN, AI_COUNTER, AI_LABEL) == ("proofline-ai", "ai_rephrases", "AI Rephrases")
+
+
+def test_ai_ledger_lines_hold_only_a_count_and_a_time(tmp_path):
+    ledger = tmp_path / "ai.jsonl"
+    assert record_ai_rephrase(ledger)
+    line = json.loads(ledger.read_text(encoding="utf-8"))
+    assert set(line) == {"ai_rephrases", "ts"} and line["ai_rephrases"] == 1
+
+
+def test_applied_ai_rephrase_reports_only_the_ai_count():
+    reporter, ai_reporter = FakeReporter(), FakeReporter()
+    usage, _ = reporting(Config(), reporter, ai_reporter=ai_reporter)
+    usage.on_ai_rephrase_applied()
+    assert ai_reporter.calls == [({"share_usage_counts": True}, True)] and reporter.calls == []
+
+
+def test_start_and_opt_out_reach_both_counts():
+    reporter, ai_reporter = FakeReporter(), FakeReporter()
+    usage, holder = reporting(Config(), reporter, ai_reporter=ai_reporter)
+    usage.start()
+    usage.stop()
+    holder["config"] = replace(Config(), share_usage_counts=False)
+    usage.on_setting_changed()
+    assert ai_reporter.calls == reporter.calls == [({"share_usage_counts": True}, False),
+                                                   ({"share_usage_counts": False}, False)]

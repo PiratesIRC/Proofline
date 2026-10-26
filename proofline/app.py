@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,6 +11,9 @@ from PyQt6.QtCore import QObject, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
+from proofline import ai_keys
+from proofline.ai_service import AiService
+from proofline.ai_setup import AiSetup
 from proofline.app_identity import DISPLAY_NAME
 from proofline.checker import GrammarChecker
 from proofline.config import (
@@ -25,9 +29,12 @@ from proofline.integration import DesktopIntegration
 from proofline.logging_setup import set_debug_mode
 from proofline.overlay_controller import OverlayController
 from proofline.quick_settings import QuickSettings, connected_message
+from proofline.rephrase import CARET_UNKNOWN_MESSAGE, Rephraser
+from proofline.replace_request import ReplaceRequest
 from proofline.settings_window import SettingsWindow
 from proofline.setup_hints import SetupHint, unseen
 from proofline.text_monitor import TextMonitor
+from proofline.text_snapshot import FieldSnapshot
 from proofline.tray import TrayIcon
 from proofline.update_check import RELEASES_PAGE_URL, UpdateChecker
 from proofline.usage import UsageReporting
@@ -54,6 +61,7 @@ class LanguageToolApp(QObject):
         quick: QuickSettings | None = None,
         updates: UpdateChecker | None = None,
         usage: UsageReporting | None = None,
+        ai: AiService | None = None,
     ) -> None:
         super().__init__()
         self._qt_app = qt_app
@@ -86,17 +94,26 @@ class LanguageToolApp(QObject):
         self._monitor.replace_finished.connect(self._on_replace_finished)
         self._monitor.hint_available.connect(self._on_setup_hint)
 
-        self._overlay = overlay or OverlayController(lambda: self._config)
+        self._ai = ai or AiService(lambda: self._config)
+        self._overlay = overlay or OverlayController(lambda: self._config, ai_available=self._ai.available)
+        self._rephraser = Rephraser(self._ai, self._overlay.card, self._overlay.hold_card, self._apply_rephrase)
+        self._rephrase_to_send: object | None = None  # the next replace request is this rewording
+        self._replace_kinds: deque[bool] = deque()  # per queued replace, oldest first: is it a rewording
+        self._overlay.rephrase_requested.connect(self._rephraser.start)
+        self._monitor.field_changed.connect(self._rephraser.on_field_changed)
+        self._monitor.caret_offset_ready.connect(self._on_caret_offset)
         self._monitor.field_changed.connect(self._overlay.on_field_changed)
         self._checker.checked.connect(self._overlay.on_checked)
         self._checker.failed.connect(self._overlay.on_check_failed)
-        self._overlay.replace_requested.connect(self._monitor.request_replace)
+        self._overlay.replace_requested.connect(self._on_replace_requested)
         self._overlay.disable_app_requested.connect(self._disable_app)
         self._overlay.disable_window_requested.connect(self._disable_window)
         self._overlay.settings_requested.connect(self._settings.show_settings)
         self._overlay.add_word_requested.connect(self._add_word)
         self._overlay.disable_rule_requested.connect(self._disable_rule)
         self._overlay.undo_requested.connect(self._undo)
+        self._overlay.underline_target_changed.connect(self._monitor.set_underline_target)
+        self._monitor.underlines_changed.connect(self._overlay.on_underlines)
 
         self._picker = FieldPickerDialog(lambda: self._config)
         self._picker.capture_started.connect(self._monitor.start_capture)
@@ -123,6 +140,7 @@ class LanguageToolApp(QObject):
         self._show_update_status()
 
         self._usage = usage or UsageReporting(lambda: self._config)
+        self._ai_setup = AiSetup(self._settings.ai, self._ai, ai_keys.save_key, ai_keys.delete_key, ai_keys.load_key)
 
     @property
     def config(self) -> Config:
@@ -171,6 +189,17 @@ class LanguageToolApp(QObject):
             self._monitor.request_check_now()
         elif action == "fix_first":
             self._overlay.apply_first_suggestion()
+        elif action == "ai_rephrase" and self._ai.available():
+            self._monitor.request_caret_offset()
+
+    def _on_caret_offset(self, snapshot: FieldSnapshot, offset: int | None) -> None:
+        """The AI shortcut's answer from the monitor: rephrase the sentence at the caret."""
+        if offset is None:
+            self._rephraser.show_message_at(*self._overlay.field_anchor(snapshot), CARET_UNKNOWN_MESSAGE, snapshot)
+            return
+        target = self._overlay.rephrase_target(snapshot, offset, snapshot.caret_rect)
+        if target is not None:  # a blank line has no sentence
+            self._rephraser.start(target)
 
     def _on_enabled_toggled(self, enabled: bool) -> None:
         log.info("Checking %s", "enabled" if enabled else "paused")
@@ -254,8 +283,21 @@ class LanguageToolApp(QObject):
             self._set_config(config)
             self._notify(f"Could not save settings: {exc}")
 
+    def _apply_rephrase(self, request: ReplaceRequest) -> None:
+        """A chosen AI rewording: the same checked replace path, counted as an AI rephrase."""
+        self._rephrase_to_send = request
+        self._overlay.request_replace(request)
+
+    def _on_replace_requested(self, request: ReplaceRequest) -> None:
+        self._replace_kinds.append(request is self._rephrase_to_send)
+        self._rephrase_to_send = None
+        self._monitor.request_replace(request)
+
     def _on_replace_finished(self, ok: bool, message: str) -> None:
-        if ok:
+        rephrase = self._replace_kinds.popleft() if self._replace_kinds else False
+        if ok and rephrase:
+            self._usage.on_ai_rephrase_applied()
+        elif ok:
             self._usage.on_correction_applied()
         else:
             self._notify(message)

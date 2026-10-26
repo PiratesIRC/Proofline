@@ -25,7 +25,7 @@ OLD_ENV_PREFIX = "LT_DESKTOP_"  # before the rename
 DEFAULT_CONSOLE_LEVEL = logging.INFO
 MAX_LOG_BYTES = 2_000_000
 LOG_BACKUPS = 3
-NOISY_LOGGERS = ("urllib3", "comtypes")
+NOISY_LOGGERS = ("urllib3", "comtypes", "anthropic", "httpx", "httpx2", "httpcore", "httpcore2")
 LOG_FORMAT = "%(asctime)s %(levelname)-7s [%(threadName)s] %(name)s: %(message)s"
 
 _debug_mode = threading.Event()
@@ -80,7 +80,8 @@ def setup_logging(log_dir: Path = LOG_DIR) -> tuple[logging.Handler, ...]:
     root.setLevel(logging.DEBUG)
     for handler in handlers:
         root.addHandler(handler)
-    # These log every connection / COM object release at DEBUG; keep them quiet.
+    # These log every connection / COM object release at DEBUG; keep them quiet. anthropic also
+    # logs each request body at DEBUG, which holds the text sent to the AI.
     for noisy in NOISY_LOGGERS:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 

@@ -73,7 +73,9 @@ HOTKEY_FIELDS = (
     ("hotkey_toggle", "Pause or resume checking"),
     ("hotkey_check_now", "Check the current field now"),
     ("hotkey_fix_first", "Apply the first suggestion"),
+    ("hotkey_ai_rephrase", "AI Rephrase the sentence at the caret"),
 )
+HOTKEY_DESCRIPTIONS = {"hotkey_ai_rephrase": "Needs AI turned on in Settings, AI"}
 HELP_URL = "https://github.com/PiratesIRC/Proofline/blob/main/docs/TROUBLESHOOTING.md"
 CHANGELOG_URL = "https://github.com/PiratesIRC/Proofline/blob/main/CHANGELOG.md"
 INSECURE_TITLE = "Unencrypted connection."
@@ -84,6 +86,7 @@ INSECURE_MESSAGE = (
 RULES_LINK_TEXT = "Browse LanguageTool's rules (ids and what they check)"
 CATEGORIES_LINK_TEXT = "List of LanguageTool categories"
 SERVER_DESCRIPTION = "Where your text is checked"
+UNDERLINE_DESCRIPTION = "Wavy lines under flagged words, in apps that report where the words are"
 LANGUAGETOOL_URL = "https://languagetool.org"
 UPDATES_DESCRIPTION = "Asks GitHub once a day whether a newer Proofline release exists. Sends none of your text."
 UPDATES_OFF_TEXT = "Update checks are off"
@@ -277,6 +280,7 @@ class CheckingPage(Page):
         self._min_words.valueChanged.connect(self._sync_words_suffix)
         self._min_words.valueChanged.connect(lambda value: self._emit(min_words=value))
         self._picky = _switch("Picky mode", lambda on: self._emit(picky=on))
+        self._hidden = _switch("Flag hidden characters", lambda on: self._emit(flag_hidden_characters=on))
         self._words = StringListEditor("", "e.g. Dispatcharr")
         self._words.items_changed.connect(lambda: self._emit(personal_dictionary=self._words.items()))
         self._rules = StringListEditor("Turned-off rules", "Rule id, e.g. WHITESPACE_RULE")
@@ -291,6 +295,9 @@ class CheckingPage(Page):
         self._group("Suggestions")
         self._card(SettingCard("Picky mode", "Also suggest style and punctuation improvements",
                                self._picky, keywords="strict style"))
+        self._card(SettingCard("Flag hidden characters",
+                               "Invisible characters such as zero-width spaces, and unusual spaces",
+                               self._hidden, keywords="invisible zero width unicode space"))
         self._dictionary = self._card(ExpanderCard("Personal dictionary", "Words never flagged as misspelled",
                                                    keywords="spelling words ignore"))
         self._dictionary.body_layout.addWidget(self._words)
@@ -308,6 +315,7 @@ class CheckingPage(Page):
         _set_combo_data(self._delay, config.debounce_ms, _seconds(config.debounce_ms))
         self._min_words.setValue(config.min_words)
         self._picky.setChecked(config.picky)
+        self._hidden.setChecked(config.flag_hidden_characters)
         self._words.set_items(config.personal_dictionary)
         self._rules.set_label(lambda rule_id: rule_label(config, rule_id))
         self.rules_link.setText(f'<a href="{rule_browser_url(config.language)}">{RULES_LINK_TEXT}</a>')
@@ -391,17 +399,21 @@ class AppearancePage(Page):
             self._tray_color.addItem(_swatch(color), name, color)
         self._tray_color.currentIndexChanged.connect(lambda: self._emit(tray_color=self._tray_color.currentData()))
         self._badge = _switch("Show the badge in every text field", lambda on: self._emit(badge_always_visible=on))
+        self._underlines = _switch("Underline issues in the text", lambda on: self._emit(show_underlines=on))
 
         self._card(SettingCard("Theme", "Light, dark, or the same as Windows", self._theme, keywords="dark light mode"))
         self._card(SettingCard("Accent and tray icon colour", "", self._tray_color, keywords="color colour tray"))
         self._card(SettingCard("Show the badge in every text field", "When off, it appears only when there are issues",
                                self._badge, keywords="badge icon"))
+        self._card(SettingCard("Underline issues in the text", UNDERLINE_DESCRIPTION, self._underlines,
+                               keywords="underline squiggle wavy line red"))
         self._finish()
 
     def _load(self, config: Config) -> None:
         _set_combo_data(self._theme, config.theme, config.theme)
         _set_combo_data(self._tray_color, config.tray_color, f"Custom ({config.tray_color})")
         self._badge.setChecked(config.badge_always_visible)
+        self._underlines.setChecked(config.show_underlines)
 
 
 class ShortcutsPage(Page):
@@ -414,7 +426,7 @@ class ShortcutsPage(Page):
             edit = HotkeyRecorder()
             edit.setMinimumWidth(COMBO_WIDTH)
             self._edits[field] = edit
-            self._card(SettingCard(label, "", edit, keywords="hotkey keyboard"))
+            self._card(SettingCard(label, HOTKEY_DESCRIPTIONS.get(field, ""), edit, keywords="hotkey keyboard"))
         self.error_bar = InfoBar("error")
         self.error_bar.hide()
         self._layout.addWidget(self.error_bar)

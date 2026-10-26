@@ -9,6 +9,7 @@ from collections.abc import Callable
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from proofline.config import Config
+from proofline.hidden_chars import hidden_matches, merge_matches
 from proofline.logging_setup import text_logging_enabled
 from proofline.lt_client import LanguageToolClient, Match
 from proofline.text_snapshot import FieldSnapshot
@@ -57,8 +58,14 @@ class GrammarChecker(QObject):
         self._generation += 1
         generation = self._generation
         started = time.monotonic()
+        flag_hidden = config.flag_hidden_characters
+
+        def run() -> tuple[Match, ...]:
+            matches = client.check(snapshot.text)
+            return merge_matches(matches, hidden_matches(snapshot.text)) if flag_hidden else matches
+
         run_in_background(
-            lambda: client.check(snapshot.text),
+            run,
             lambda matches: self._on_done(generation, snapshot, matches, started),
             lambda exc: self._on_failed(generation, exc),
         )

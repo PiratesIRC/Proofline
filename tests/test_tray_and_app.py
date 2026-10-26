@@ -2,10 +2,14 @@ from dataclasses import replace
 from unittest.mock import MagicMock
 
 import pytest
+from factories import snapshot
+from PyQt6.QtCore import QRect
 
+from proofline.ai_service import AiService
 from proofline.app import LanguageToolApp
 from proofline.config import Config, load_config, save_config
 from proofline.health import NOTICE_MIN_GAP_S, OutageNotices
+from proofline.rephrase import CARET_UNKNOWN_MESSAGE
 from proofline.tray import TrayIcon, make_icon
 
 
@@ -273,3 +277,74 @@ def test_fix_first_shortcut_applies_the_first_suggestion(app):
     assert app.config.hotkey_fix_first == "ctrl+alt+j"
     app._on_hotkey("fix_first")
     app._overlay.apply_first_suggestion.assert_called_once()
+
+
+def test_rephrase_flow_is_wired_through_the_overlay(qapp, tmp_path):
+    overlay, monitor = MagicMock(), MagicMock()
+    lt_app = LanguageToolApp(MagicMock(), tmp_path / "config.json", monitor=monitor, overlay=overlay,
+                             integration=MagicMock(), health=MagicMock(), quick=MagicMock(),
+                             updates=MagicMock(current_info=MagicMock(return_value=None)), usage=MagicMock(),
+                             ai=AiService(Config, lambda key: None, lambda: None, tmp_path / "ai_usage.jsonl"))
+    overlay.rephrase_requested.connect.assert_any_call(lt_app._rephraser.start)
+    monitor.field_changed.connect.assert_any_call(lt_app._rephraser.on_field_changed)
+    assert lt_app._rephraser.card is overlay.card
+
+
+def _ai_app(tmp_path, enabled):
+    overlay, monitor = MagicMock(), MagicMock()
+    overlay.field_anchor.return_value = (QRect(0, 0, 0, 0), QRect(0, 0, 1920, 1040), "#2e7d32")
+    overlay.rephrase_target.return_value = None  # a blank line: nothing starts
+    ai = AiService(lambda: Config(ai_enabled=enabled), lambda key: None, lambda: "sk-ant-x",
+                   tmp_path / "ai_usage.jsonl")
+    return LanguageToolApp(MagicMock(), tmp_path / "config.json", monitor=monitor, overlay=overlay,
+                           integration=MagicMock(), health=MagicMock(), quick=MagicMock(),
+                           updates=MagicMock(current_info=MagicMock(return_value=None)), usage=MagicMock(), ai=ai)
+
+
+def test_ai_rephrase_shortcut_does_nothing_while_ai_is_unavailable(qapp, tmp_path):
+    lt_app = _ai_app(tmp_path, enabled=False)
+    lt_app._on_hotkey("ai_rephrase")
+    lt_app._monitor.request_caret_offset.assert_not_called()
+
+
+def test_ai_rephrase_shortcut_asks_the_monitor_when_ai_is_available(qapp, tmp_path):
+    lt_app = _ai_app(tmp_path, enabled=True)
+    lt_app._on_hotkey("ai_rephrase")
+    lt_app._monitor.request_caret_offset.assert_called_once()
+
+
+def test_unknown_caret_offset_shows_a_message_and_sends_nothing(qapp, tmp_path):
+    lt_app = _ai_app(tmp_path, enabled=True)
+    lt_app._on_caret_offset(snapshot(), None)
+    message = lt_app._overlay.card.show_message.call_args
+    assert message.args[0] == CARET_UNKNOWN_MESSAGE and message.kwargs["retry"] is False
+    lt_app._overlay.card.show_waiting.assert_not_called()
+
+
+def test_caret_offset_starts_a_rephrase_at_the_caret(qapp, tmp_path):
+    lt_app = _ai_app(tmp_path, enabled=True)
+    snap = snapshot()
+    lt_app._on_caret_offset(snap, 7)
+    lt_app._overlay.rephrase_target.assert_called_once_with(snap, 7, snap.caret_rect)
+
+
+def test_applied_rephrase_counts_as_an_ai_rephrase_not_a_correction(app):
+    request = object()
+    app._apply_rephrase(request)
+    app._overlay.request_replace.assert_called_once_with(request)
+    app._on_replace_requested(request)
+    app._monitor.request_replace.assert_called_with(request)
+    app._on_replace_requested("ordinary correction")
+    app._on_replace_finished(True, "")  # the rephrase, applied first
+    app._usage.on_ai_rephrase_applied.assert_called_once()
+    app._usage.on_correction_applied.assert_not_called()
+    app._on_replace_finished(True, "")  # then the ordinary one
+    app._usage.on_correction_applied.assert_called_once()
+
+
+def test_failed_rephrase_counts_nothing(app):
+    request = object()
+    app._apply_rephrase(request)
+    app._on_replace_requested(request)
+    app._on_replace_finished(False, "Text changed; nothing replaced")
+    app._usage.on_ai_rephrase_applied.assert_not_called()

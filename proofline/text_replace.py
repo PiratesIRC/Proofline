@@ -14,7 +14,7 @@ import comtypes
 import uiautomation as auto
 
 from proofline import win32_edit
-from proofline.clipboard import ClipboardError, paste_text
+from proofline.clipboard import ClipboardError, paste_text, send_delete
 from proofline.replace_request import ReplaceError, ReplaceRequest
 from proofline.uia_reader import (
     MAX_TEXT_CHARS,
@@ -44,7 +44,10 @@ def replace_in_focused_field(request: ReplaceRequest) -> None:
             _select_with_win32(control.NativeWindowHandle, request)
         else:
             _select_with_uia(text_pattern, request)
-        paste_text(request.replacement)
+        if request.replacement:
+            paste_text(request.replacement)
+        else:
+            send_delete()  # pasting an empty clipboard is not a reliable way to delete
     except comtypes.COMError as exc:
         log.warning("UIA error while replacing: %s", exc)
         raise ReplaceError("The text field stopped responding; try again.") from exc

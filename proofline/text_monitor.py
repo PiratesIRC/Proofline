@@ -12,7 +12,14 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from proofline.config import Config
 from proofline.replace_request import ReplaceError, ReplaceRequest
-from proofline.text_snapshot import FocusResult, TypingDebouncer, loggable, word_count
+from proofline.text_snapshot import (
+    FieldSnapshot,
+    FocusResult,
+    TypingDebouncer,
+    loggable,
+    word_count,
+)
+from proofline.underlines import Underlines, UnderlineTarget
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +31,16 @@ MS_PER_S = 1000
 Reader = Callable[[], FocusResult]
 PAUSED = FocusResult((), "", "checking paused")
 Replacer = Callable[[ReplaceRequest], None]
+RectReader = Callable[[UnderlineTarget], Underlines | None]
+CaretReader = Callable[[], str | None]  # the field's text from its start to the caret
+
+
+def _no_caret() -> str | None:
+    return None
+
+
+def _no_rects(_target: UnderlineTarget) -> Underlines | None:
+    return None
 
 
 class TextMonitor(QThread):
@@ -32,6 +49,8 @@ class TextMonitor(QThread):
     field_changed(FieldSnapshot | None): focus moved, or text/caret changed.
     text_ready(FieldSnapshot): the text has been unchanged for config.debounce_ms.
     replace_finished(bool, str): outcome of request_replace(); the message explains failures.
+    underlines_changed(Underlines | None): where the set_underline_target() spans sit on
+        screen, re-measured every poll (scrolling moves them without changing the text).
 
     All UI Automation work happens on this thread; pass `reader` and `replacer` to
     substitute fakes in tests.
@@ -43,6 +62,8 @@ class TextMonitor(QThread):
     captured = pyqtSignal(object)  # FocusResult before exclusions, while capture is on
     focus_changed = pyqtSignal(object)  # FocusResult whenever the focused element or its status changes
     replace_finished = pyqtSignal(bool, str)
+    underlines_changed = pyqtSignal(object)
+    caret_offset_ready = pyqtSignal(object, object)  # FieldSnapshot, caret offset (int) or None
 
     def __init__(
         self,
@@ -51,17 +72,23 @@ class TextMonitor(QThread):
         replacer: Replacer | None = None,
         clock: Callable[[], float] = time.monotonic,
         poll_interval_s: float = POLL_INTERVAL_S,
+        rect_reader: RectReader | None = None,
+        caret_reader: CaretReader | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("TextMonitor")
         self._config = config
         self._reader = reader
         self._replacer = replacer
+        self._rect_reader = rect_reader
+        self._caret_reader = caret_reader
+        self._underline_target: UnderlineTarget | None = None
         self._requests: queue.SimpleQueue[ReplaceRequest] = queue.SimpleQueue()
         self._clock = clock
         self._poll_interval_s = poll_interval_s
         self._stop_event = threading.Event()
         self._check_now = threading.Event()
+        self._caret_wanted = threading.Event()
         self._capture = threading.Event()
 
     def set_config(self, config: Config) -> None:
@@ -71,6 +98,10 @@ class TextMonitor(QThread):
     def request_replace(self, request: ReplaceRequest) -> None:
         """Queue a correction; it is applied on the monitor thread before the next poll."""
         self._requests.put(request)
+
+    def set_underline_target(self, target: UnderlineTarget | None) -> None:
+        """Spans to measure while the field holds target.text; None stops measuring."""
+        self._underline_target = target  # immutable, so swapping the reference is thread-safe
 
     def start_capture(self) -> None:
         """Report every focus change via `captured`, even when paused or excluded."""
@@ -83,6 +114,10 @@ class TextMonitor(QThread):
         """Check the focused field on the next poll without waiting for a typing pause."""
         self._check_now.set()
 
+    def request_caret_offset(self) -> None:
+        """Emit caret_offset_ready on the next poll if it finds a field; dropped otherwise."""
+        self._caret_wanted.set()
+
     def stop(self) -> None:
         self._stop_event.set()
         if not self.wait(STOP_TIMEOUT_MS):
@@ -91,12 +126,13 @@ class TextMonitor(QThread):
     def run(self) -> None:
         threading.current_thread().name = "TextMonitor"
         if self._reader is not None and self._replacer is not None:
-            self._loop(self._reader, self._replacer)
+            self._loop(self._reader, self._replacer, self._rect_reader or _no_rects,
+                       self._caret_reader or _no_caret)
             return
         # Imported here so UIA and its COM apartment belong to this thread.
         import uiautomation as auto
 
-        from proofline import text_replace, uia_reader
+        from proofline import text_replace, uia_reader, underline_rects
 
         with auto.UIAutomationInitializerInThread():
             self._loop(
@@ -107,6 +143,8 @@ class TextMonitor(QThread):
                     )
                 ),
                 self._replacer or text_replace.replace_in_focused_field,
+                self._rect_reader or underline_rects.measure,
+                self._caret_reader or uia_reader.read_text_before_caret,
             )
 
     def _report_capture(
@@ -135,13 +173,44 @@ class TextMonitor(QThread):
             else:
                 self.replace_finished.emit(True, "")
 
-    def _loop(self, reader: Reader, replacer: Replacer) -> None:
+    def _measure_underlines(
+        self, snapshot: FieldSnapshot | None, rect_reader: RectReader, last: Underlines | None
+    ) -> Underlines | None:
+        """Emit underlines_changed when the measured rectangles differ from the last poll."""
+        target = self._underline_target
+        underlines = None
+        if target is not None and target.applies_to(snapshot):
+            try:
+                underlines = rect_reader(target)
+            except Exception:  # elements vanish mid-measure; the next poll tries again
+                log.debug("Measuring underlines failed", exc_info=True)
+        if underlines != last:
+            self.underlines_changed.emit(underlines)
+        return underlines
+
+    def _report_caret(self, snapshot: FieldSnapshot | None, caret_reader: CaretReader) -> None:
+        """Answer a caret request on this poll only: a press where no field is read is dropped."""
+        if not self._caret_wanted.is_set():
+            return
+        self._caret_wanted.clear()
+        if snapshot is None:
+            return
+        try:
+            before = caret_reader()
+        except Exception:  # elements vanish; the card then says it cannot find the caret
+            log.debug("Reading the caret position failed", exc_info=True)
+            before = None
+        offset = len(before) if before is not None and snapshot.text.startswith(before) else None
+        self.caret_offset_ready.emit(snapshot, offset)
+
+    def _loop(self, reader: Reader, replacer: Replacer, rect_reader: RectReader, caret_reader: CaretReader) -> None:
         log.info("Text monitor running (poll every %.0f ms)", self._poll_interval_s * MS_PER_S)
         delay_ms = self._config.debounce_ms
         debouncer = TypingDebouncer(delay_ms / MS_PER_S)
         previous: FocusResult | None = None
         failures = 0
         last_captured: tuple[object, ...] | None = None
+        underlines: Underlines | None = None
 
         while not self._stop_event.wait(self._poll_interval_s):
             self._apply_pending_replacements(replacer)
@@ -154,6 +223,7 @@ class TextMonitor(QThread):
                 raw = reader() if config.enabled or capturing else PAUSED
                 result = _apply_config(raw, config)
             except Exception:  # the monitor must survive any reader failure
+                self._caret_wanted.clear()  # a shortcut press is answered on this poll or dropped
                 failures += 1
                 if failures % ERROR_LOG_EVERY == 1:
                     log.exception("Reading the focused field failed (%d failures so far)", failures)
@@ -168,6 +238,8 @@ class TextMonitor(QThread):
             if previous is None or result.snapshot != previous.snapshot:
                 self.field_changed.emit(result.snapshot)
             previous = result
+            self._report_caret(result.snapshot, caret_reader)
+            underlines = self._measure_underlines(result.snapshot, rect_reader, underlines)
 
             ready = debouncer.update(result.snapshot, self._clock())
             if ready is not None and word_count(ready.text) < config.min_words:

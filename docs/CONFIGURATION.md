@@ -34,6 +34,7 @@ absent take their defaults, so a file containing only `server_url` is valid.
 | `debounce_ms` | int | `1000` | Checking › Check after I stop typing for | 200 to 10000. |
 | `min_words` | int | `2` | Checking › Only check text with at least | 1 to 10. `Ctrl+Alt+L` ignores it. |
 | `picky` | bool | `false` | Checking › Picky mode | Sends `level=picky`. |
+| `flag_hidden_characters` | bool | `true` | Checking › Flag hidden characters | Flags a zero-width space, soft hyphen or direction mark inside a word, text-direction controls (U+202A to U+202E, U+2066 to U+2069) anywhere, and unusual spaces (thin, em, narrow no-break, ideographic and similar). Checked by Proofline itself, not the server. Never flagged, because web editors insert them as placeholders or browsers add them: U+FEFF, U+2060, U+00A0, U+200C, U+200D. |
 | `personal_dictionary` | list of strings | `[]` | Checking › Personal dictionary; popup › Add to dictionary | Spelling matches only; case-insensitive. |
 | `disabled_rules` | list of strings | `[]` | Checking › Turned-off rules; popup › Turn off this rule | LanguageTool rule IDs, sent as `disabledRules`. |
 | `disabled_categories` | list of strings | `[]` | Checking › Turned-off categories | Category IDs (upper-cased), sent as `disabledCategories`. |
@@ -43,10 +44,15 @@ absent take their defaults, so a file containing only `server_url` is valid.
 | `custom_fields` | list of strings | `[]` | Apps & fields › Custom text fields; Add a text field… | `app.exe\|ControlType\|ClassName`; `*` as the class matches any class. Checked even when the control doesn't look like a text box, and overrides exclusions and field filters (never password fields). |
 | `theme` | string | `auto` | Appearance › Theme | `auto` (follow Windows), `light`, `dark`. |
 | `tray_color` | string | `#2e7d32` | Appearance › Accent and tray icon colour | `#rrggbb`; also the accent colour of Settings and quick settings. |
+| `show_underlines` | bool | `true` | Appearance › Underline issues in the text | Draws a wavy line under each flagged word in a click-through window over the field. Needs an app that reports word positions through UI Automation (TextPattern); classic Win32 edit boxes keep only the badge. At most 50 issues per field are underlined. |
 | `badge_always_visible` | bool | `true` | Appearance › Show the badge in every text field | When `false`, the badge appears only when there are issues. Either way, the grey checking badge waits until the field holds `min_words` words. |
 | `hotkey_toggle` | string | `ctrl+alt+p` | Shortcuts | `""` turns the shortcut off. Modifiers: `ctrl`, `alt`, `shift`, `win`; keys: letters, digits, `f1` to `f24`, `space`, `enter`, `tab`, `esc`, … |
 | `hotkey_check_now` | string | `ctrl+alt+l` | Shortcuts | Must differ from the other shortcuts. |
 | `hotkey_fix_first` | string | `ctrl+alt+j` | Shortcuts | Applies the first suggestion for the focused text box. `""` turns it off. |
+| `hotkey_ai_rephrase` | string | `""` | Shortcuts | Rephrases the sentence at the caret with Claude. Works only while AI is on and an API key is saved. `""` (the default) turns it off. |
+| `ai_enabled` | bool | `false` | AI › Use AI suggestions | Nothing is sent to the Claude API while this is `false` or no API key is saved. The key is kept in Windows Credential Manager (`Proofline/anthropic-api-key`), never in this file. |
+| `ai_model` | string | `claude-haiku-5-5` | AI › Model | `claude-haiku-5-5`, `claude-sonnet-5-5` or `claude-opus-5-5`. |
+| `ai_monthly_cap_cents` | int | `100` | AI › Monthly spending limit | 10 to 10000 (US cents, $0.10 to $100). A request is refused when this calendar month's recorded cost plus the request's worst-case cost would pass it. Usage is recorded in `ai_usage.jsonl` beside this file (token counts and cost, never the text). |
 | `debug_mode` | bool | `false` | Advanced › Debug mode | Adds short text samples to the log. |
 | `check_for_updates` | bool | `true` | Advanced › Check for updates | Asks GitHub whether a newer release exists (see below). Sends no text. |
 | `share_usage_counts` | bool | `true` | Advanced › Share anonymous usage counts | Sends the Corrections Applied total and a random id to plugin-stats.dpas.workers.dev for the README badges. Turning it off asks the server to delete this install's figures. See README › Anonymous usage counts. |

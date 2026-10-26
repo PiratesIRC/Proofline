@@ -194,3 +194,55 @@ def test_paused_until_round_trips(tmp_path):
 def test_paused_until_validated(bad):
     with pytest.raises(ConfigError):
         save_config(replace(Config(), paused_until=bad))
+
+
+def test_ai_is_off_by_default():
+    config = Config()
+    assert config.ai_enabled is False
+    assert config.ai_model == "claude-haiku-5-5"
+    assert config.ai_monthly_cap_cents == 100
+
+
+@pytest.mark.parametrize("bad", [9, 10_001, True, 1.5])
+def test_ai_cap_outside_range_is_refused(bad):
+    with pytest.raises(ConfigError):
+        save_config(replace(Config(), ai_monthly_cap_cents=bad))
+
+
+@pytest.mark.parametrize("bad", ["gpt-x", "", None])
+def test_unknown_ai_model_is_refused(bad):
+    with pytest.raises(ConfigError):
+        save_config(replace(Config(), ai_model=bad))
+
+
+def test_ai_enabled_must_be_a_bool():
+    with pytest.raises(ConfigError):
+        save_config(replace(Config(), ai_enabled="yes"))
+
+
+def test_ai_settings_round_trip(tmp_path):
+    path = tmp_path / "config.json"
+    saved = save_config(Config(ai_enabled=True, ai_model="claude-sonnet-5-5", ai_monthly_cap_cents=250), path)
+    assert load_config(path) == saved
+    assert saved.ai_monthly_cap_cents == 250
+
+
+def test_load_replaces_a_retired_ai_model_and_keeps_other_settings(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"language": "de-DE", "ai_enabled": True, "ai_model": "claude-retired"}),
+                    encoding="utf-8")
+    loaded = load_config(path)
+    assert loaded.ai_model == Config().ai_model
+    assert loaded.language == "de-DE" and loaded.ai_enabled
+
+
+def test_save_still_rejects_an_unknown_ai_model(tmp_path):
+    with pytest.raises(ConfigError):
+        save_config(Config(ai_model="claude-retired"), tmp_path / "config.json")
+
+
+def test_ai_rephrase_hotkey_defaults_to_empty_and_round_trips(tmp_path):
+    assert Config().hotkey_ai_rephrase == ""
+    path = tmp_path / "config.json"
+    save_config(Config(hotkey_ai_rephrase="ctrl+alt+r"), path)
+    assert load_config(path).hotkey_ai_rephrase == "ctrl+alt+r"
