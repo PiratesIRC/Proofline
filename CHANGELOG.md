@@ -2,6 +2,18 @@
 
 All notable changes to this project.
 
+## 0.2.2 (2026-10-25)
+
+### New
+- Drag the issues popup by its heading to move it. A moved popup stays open until you close it,
+  follows the text box you type in, and shows "Checking…" while a check runs. Useful when the Start
+  menu covers the popup.
+
+### Fixed
+- The grey checking badge appeared as soon as you clicked into an empty box (Start menu search,
+  Discord) and kept spinning, although no check runs until the box holds the minimum number of
+  words. It now waits for that.
+
 ## 0.2.1 (2026-10-24)
 
 ### Fixed

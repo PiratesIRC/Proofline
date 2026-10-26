@@ -2,13 +2,18 @@ from dataclasses import replace
 
 import pytest
 from factories import snapshot
-from PyQt6.QtCore import QPoint, QRect, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QWidget
 
 from proofline.badge import BADGE_SIZE, BadgeState, BadgeWidget
 from proofline.config import Config
 from proofline.lt_client import Match
-from proofline.overlay_controller import OverlayController, badge_position
+from proofline.overlay_controller import (
+    CHECKING_STATUS,
+    OverlayController,
+    badge_position,
+)
 from proofline.overlay_widgets import (
     POPUP_MAX_HEIGHT,
     IssuesPopup,
@@ -303,3 +308,82 @@ def test_apply_first_suggestion_fixes_the_first_issue(qtbot, harness):
     with qtbot.waitSignal(harness.controller.replace_requested) as blocker:
         assert harness.controller.apply_first_suggestion()
     assert (blocker.args[0].error_text, blocker.args[0].replacement) == ("are", "is")  # first one with a fix
+
+
+@pytest.mark.parametrize("text", ["", "   ", "\ufeff", "One"])
+def test_no_checking_badge_until_there_is_enough_text_to_check(harness, text):
+    harness.controller.on_field_changed(snapshot(text=text))  # min_words defaults to 2
+    assert not harness.badge.isVisible()
+    harness.controller.on_field_changed(snapshot(text=text + " more words"))
+    assert harness.badge.isVisible()
+    assert harness.badge.state is BadgeState.CHECKING
+
+
+def test_explicit_check_of_short_text_still_shows_its_result(harness):
+    snap = snapshot(text="Teh")
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, (MATCH,))  # Check now ignores the minimum length
+    assert harness.badge.isVisible()
+    assert harness.badge.state is BadgeState.ISSUES
+
+
+HEADER_POINT = QPoint(20, 12)  # on the popup's header label
+DRAG_BY = QPoint(200, 150)
+
+
+def drag_popup(qtbot, popup, by=DRAG_BY):
+    start = popup.pos() + HEADER_POINT
+    qtbot.mousePress(popup, Qt.MouseButton.LeftButton, pos=HEADER_POINT)
+    popup.mouseMoveEvent(_mouse_move(popup, start + by))
+    qtbot.mouseRelease(popup, Qt.MouseButton.LeftButton, pos=HEADER_POINT)
+    return popup.pos()
+
+
+def _mouse_move(popup, global_pos):
+    local = QPointF(popup.mapFromGlobal(global_pos))
+    return QMouseEvent(
+        QEvent.Type.MouseMove, local, QPointF(global_pos),
+        Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+    )
+
+
+def test_dragged_popup_stays_open_through_typing_and_focus_changes(qtbot, harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, (MATCH,))
+    harness.badge.clicked.emit()
+    before = harness.popup.pos()
+    dropped = drag_popup(qtbot, harness.popup)
+    assert dropped == before + DRAG_BY
+    assert harness.popup.is_pinned
+
+    harness.controller.on_field_changed(replace(snap, text=snap.text + " More"))
+    assert harness.popup.isVisible()
+    assert harness.popup._header.text() == CHECKING_STATUS
+    assert harness.popup._scroll.isHidden()
+    harness.controller.on_field_changed(None)
+    assert harness.popup.isVisible()
+
+    newer = replace(snap, text="Thsi is new.")
+    harness.controller.on_field_changed(newer)
+    harness.controller.on_checked(newer, (MATCH,))
+    assert not harness.popup._scroll.isHidden()  # results for the new text fill it again
+    assert harness.popup.pos() == dropped  # where the user put it
+    harness.badge.clicked.emit()
+    assert harness.popup.isVisible()  # the badge no longer closes it
+
+    harness.popup.hide()  # what Close does
+    assert not harness.popup.is_pinned
+    harness.badge.clicked.emit()
+    assert harness.popup.pos() != dropped  # next time it opens beside the badge again
+
+
+def test_short_click_on_popup_does_not_pin_it(qtbot, harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, (MATCH,))
+    harness.badge.clicked.emit()
+    drag_popup(qtbot, harness.popup, by=QPoint(1, 1))
+    assert not harness.popup.is_pinned
+    harness.controller.on_field_changed(replace(snap, text=snap.text + "x"))
+    assert not harness.popup.isVisible()

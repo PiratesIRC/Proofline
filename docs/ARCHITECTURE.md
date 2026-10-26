@@ -88,6 +88,8 @@ render black.
 for Windows 11 rounded corners, border and shadow, which DWM only gives non-layered windows.
 On Windows 10 the request fails quietly and the corners stay square.
 
+**Pinned popup.** Dragging the popup sets `IssuesPopup.is_pinned` (reset on hide). `OverlayController._release_popup` then shows a status line (`show_status`) instead of hiding it when the field or its text changes; `_refit` leaves a pinned popup where it was dropped. Corrections stay safe because the popup lists issues only for the current snapshot.
+
 **Popup sizing.** Rows added to a widget that is already visible stay hidden until the next
 event-loop pass, and `QScrollArea` caches its content size, so `adjustSize()` alone squashed the
 issues list when results changed while the popup was open. The popup shows rows as it adds

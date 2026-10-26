@@ -11,6 +11,7 @@ from proofline.logging_setup import text_logging_enabled
 
 PREVIEW_CHARS = 40
 MAX_CLASS_CHARS = 40
+ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"))
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,11 @@ class FocusResult:
 def loggable(text: str) -> str:
     """Length only by default; a short preview in debug mode."""
     return preview(text) if text_logging_enabled() else f"{len(text)} chars"
+
+
+def word_count(text: str) -> int:
+    """Words in text; zero-width characters (some empty editors hold one) don't count."""
+    return len(text.translate(ZERO_WIDTH).split())
 
 
 def preview(text: str, limit: int = PREVIEW_CHARS) -> str:

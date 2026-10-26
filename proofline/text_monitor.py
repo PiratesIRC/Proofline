@@ -12,7 +12,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from proofline.config import Config
 from proofline.replace_request import ReplaceError, ReplaceRequest
-from proofline.text_snapshot import FocusResult, TypingDebouncer, loggable
+from proofline.text_snapshot import FocusResult, TypingDebouncer, loggable, word_count
 
 log = logging.getLogger(__name__)
 
@@ -180,10 +180,6 @@ class TextMonitor(QThread):
                 log.info("Typing paused in %s: %s", ready.describe(), loggable(ready.text))
                 self.text_ready.emit(ready)
         log.info("Text monitor stopped")
-
-
-def word_count(text: str) -> int:
-    return len(text.split())
 
 
 def _apply_config(result: FocusResult, config: Config) -> FocusResult:

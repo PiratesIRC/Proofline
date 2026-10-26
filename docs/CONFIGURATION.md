@@ -43,7 +43,7 @@ absent take their defaults, so a file containing only `server_url` is valid.
 | `custom_fields` | list of strings | `[]` | Apps & fields › Custom text fields; Add a text field… | `app.exe\|ControlType\|ClassName`; `*` as the class matches any class. Checked even when the control doesn't look like a text box, and overrides exclusions and field filters (never password fields). |
 | `theme` | string | `auto` | Appearance › Theme | `auto` (follow Windows), `light`, `dark`. |
 | `tray_color` | string | `#2e7d32` | Appearance › Accent and tray icon colour | `#rrggbb`; also the accent colour of Settings and quick settings. |
-| `badge_always_visible` | bool | `true` | Appearance › Show the badge in every text field | When `false`, the badge appears only when there are issues. |
+| `badge_always_visible` | bool | `true` | Appearance › Show the badge in every text field | When `false`, the badge appears only when there are issues. Either way, the grey checking badge waits until the field holds `min_words` words. |
 | `hotkey_toggle` | string | `ctrl+alt+p` | Shortcuts | `""` turns the shortcut off. Modifiers: `ctrl`, `alt`, `shift`, `win`; keys: letters, digits, `f1` to `f24`, `space`, `enter`, `tab`, `esc`, … |
 | `hotkey_check_now` | string | `ctrl+alt+l` | Shortcuts | Must differ from the other shortcuts. |
 | `hotkey_fix_first` | string | `ctrl+alt+j` | Shortcuts | Applies the first suggestion for the focused text box. `""` turns it off. |

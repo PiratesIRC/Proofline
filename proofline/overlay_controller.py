@@ -20,13 +20,16 @@ from proofline.screen_coords import (
     screen_for,
     to_logical_rect,
 )
-from proofline.text_snapshot import FieldSnapshot
+from proofline.text_snapshot import FieldSnapshot, word_count
 
 log = logging.getLogger(__name__)
 
 BADGE_MARGIN = 4
 SINGLE_LINE_MAX_HEIGHT = 56  # taller fields are treated as multi-line
 SILENT_STATES = frozenset({BadgeState.CHECKING, BadgeState.CLEAN})
+CHECKING_STATUS = "Checking…"
+TOO_SHORT_STATUS = "Nothing to check yet. Keep typing."
+NO_FIELD_STATUS = "Click in a text box to check it."
 
 AppNameProvider = Callable[[FieldSnapshot], str]
 
@@ -82,16 +85,27 @@ class OverlayController(QObject):
             self._server_matches = ()
             self._matches = ()
             self._badge.hide()
-            if not self._popup.is_notice_only:  # keep Undo reachable after turning off an app
-                self._popup.hide()
+            self._release_popup(NO_FIELD_STATUS)
             return
         if previous is None or (previous.field_id, previous.text) != (snapshot.field_id, snapshot.text):
             self._server_matches = ()
             self._matches = ()
             self._set_state(BadgeState.CHECKING)
-            if not self._popup.is_notice_only:
-                self._popup.hide()
+            self._release_popup(CHECKING_STATUS if self._will_check(snapshot) else TOO_SHORT_STATUS)
         self.refresh()
+
+    def _will_check(self, snapshot: FieldSnapshot) -> bool:
+        """The monitor checks a field only once it holds config.min_words words."""
+        return word_count(snapshot.text) >= max(1, self._config_provider().min_words)
+
+    def _release_popup(self, status: str) -> None:
+        """The listed issues no longer apply: close the popup, or show status if it was dragged."""
+        if self._popup.is_notice_only:  # keep Undo reachable after turning off an app
+            return
+        if self._popup.is_pinned:
+            self._popup.show_status(status)
+        else:
+            self._popup.hide()
 
     def on_checked(self, snapshot: FieldSnapshot, matches: tuple[Match, ...]) -> None:
         current = self._snapshot
@@ -134,6 +148,10 @@ class OverlayController(QObject):
         if snapshot is None or (self._state in SILENT_STATES and not show_silent):
             self._badge.hide()
             return
+        if self._state is BadgeState.CHECKING and not self._will_check(snapshot):
+            # No check will run, so a spinner would never stop (empty search box, chat input).
+            self._badge.hide()
+            return
         self._badge.set_state(self._state, len(self._matches), self._message)
         self._badge.move(badge_position(snapshot, self._screens_provider()))
         self._badge.show()
@@ -144,7 +162,7 @@ class OverlayController(QObject):
         self._message = message
 
     def _toggle_popup(self) -> None:
-        if self._popup.isVisible():
+        if self._popup.isVisible() and not self._popup.is_pinned:
             self._popup.hide()
         elif self._snapshot is not None:
             self._show_popup()
@@ -163,7 +181,7 @@ class OverlayController(QObject):
     def _on_replacement_chosen(self, match: Match, replacement: str) -> None:
         if self._snapshot is None:
             return
-        self._popup.hide()
+        self._release_popup(CHECKING_STATUS)
         self._set_state(BadgeState.CHECKING)
         self.refresh()
         self.replace_requested.emit(ReplaceRequest.build(self._snapshot, match, replacement))
@@ -213,7 +231,8 @@ class OverlayController(QObject):
         self._popup.show_notice_only(message, field, value)
 
     def _on_settings(self) -> None:
-        self._popup.hide()
+        if not self._popup.is_pinned:
+            self._popup.hide()
         self.settings_requested.emit()
 
 

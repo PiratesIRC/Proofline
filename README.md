@@ -147,7 +147,7 @@ minutes.
 
 | You see | Meaning |
 |---|---|
-| Grey badge with a spinning arc | Checking (or waiting for you to pause typing) |
+| Grey badge with a spinning arc | Checking (or waiting for you to pause typing). It appears once the box holds enough words to check, so an empty search box or chat input shows no badge |
 | Green badge with a check mark | No issues found |
 | Red badge with a number | That many issues; it pulses briefly to get your attention |
 | Brown badge with **!** | The server couldn't be reached; hover for details |
@@ -160,6 +160,7 @@ Click the badge to open the issues popup:
   stops a word being flagged; **Turn off this rule** disables a LanguageTool rule.
 - **More options** › **Turn off in <app>** / **Turn off in this window** stop checking there.
 - Adding a word or turning something off shows a notice with **Undo**.
+- Drag the popup by its heading to move it, for example out from under the Start menu. A moved popup stays open until you click **✕**: it follows the text box you type in and shows the new results after each check.
 
 ### Tray quick settings
 

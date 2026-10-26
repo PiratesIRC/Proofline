@@ -7,6 +7,9 @@ and accent colour like the rest of the app.
 Permanent actions (add a word, turn off a rule, app or window) show a notice with Undo
 inside the popup; the popup emits undo_requested(config field, value) for the app to
 remove that value again.
+
+Dragging the popup pins it: it stays where it was dropped and stays open until Close is
+clicked, showing a short status line while the field has nothing to list.
 """
 
 from __future__ import annotations
@@ -16,8 +19,9 @@ import logging
 import re
 
 from PyQt6.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QHideEvent
+from PyQt6.QtGui import QHideEvent, QMouseEvent
 from PyQt6.QtWidgets import (
+    QApplication,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -51,6 +55,7 @@ ADD_WORD_TEXT = "Add to dictionary"
 DISABLE_RULE_TEXT = "Turn off this rule"
 UNDO_TEXT = "Undo"
 NO_ISSUES_TEXT = "No issues found."
+DRAG_TOOLTIP = "Drag to move. A moved popup stays open until you close it."
 WHITESPACE = re.compile(r"\s+")
 
 POPUP_EXTRA_STYLE = """
@@ -117,6 +122,8 @@ class IssuesPopup(QWidget):
         self._anchor = QRect()
         self._bounds = QRect()
         self._undo: tuple[str, str] | None = None
+        self._press_offset: QPoint | None = None  # cursor minus top-left while the button is down
+        self._pinned = False
         self._notice_timer = QTimer(self)
         self._notice_timer.setSingleShot(True)
         self._notice_timer.timeout.connect(self.hide)
@@ -141,6 +148,11 @@ class IssuesPopup(QWidget):
         return self.isVisible() and self._header.isHidden()
 
     @property
+    def is_pinned(self) -> bool:
+        """True after the user dragged the open popup; it then closes only through Close."""
+        return self.isVisible() and self._pinned
+
+    @property
     def notice_text(self) -> str:
         return self._notice_label.text() if not self._notice.isHidden() else ""
 
@@ -149,6 +161,8 @@ class IssuesPopup(QWidget):
     def _build_header(self) -> QHBoxLayout:
         self._header = QLabel()
         self._header.setObjectName("popupHeader")
+        self._header.setToolTip(DRAG_TOOLTIP)
+        self._header.setCursor(Qt.CursorShape.SizeAllCursor)
         close_button = QPushButton(CLOSE_GLYPH)
         close_button.setObjectName("closeButton")
         close_button.setAccessibleName("Close")
@@ -246,12 +260,43 @@ class IssuesPopup(QWidget):
         self._scroll.hide()
         self._footer.hide()
         self.show_notice(message, field, value)
-        self._notice_timer.start(NOTICE_ONLY_MS)
+        if not self.is_pinned:
+            self._notice_timer.start(NOTICE_ONLY_MS)
+
+    def show_status(self, message: str) -> None:
+        """A pinned popup whose issues no longer apply: show message instead of the list."""
+        self._header.setText(message)
+        self._header.show()
+        self._scroll.hide()
+        self._footer.hide()
+        self._shown = None
+        self._refit()
 
     # ----- internals --------------------------------------------------------
 
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        # Buttons take their own clicks; presses on labels and the background arrive here.
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_offset = event.globalPosition().toPoint() - self.pos()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._press_offset is None:
+            return
+        target = event.globalPosition().toPoint() - self._press_offset
+        if not self._pinned and (target - self.pos()).manhattanLength() < QApplication.startDragDistance():
+            return
+        self._pinned = True
+        self._notice_timer.stop()
+        self.move(target)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_offset = None
+
     def hideEvent(self, event: QHideEvent) -> None:
         super().hideEvent(event)
+        self._pinned = False
+        self._press_offset = None
         self._notice_timer.stop()
         self._undo = None
         self._notice.hide()
@@ -292,7 +337,8 @@ class IssuesPopup(QWidget):
         self._frame.layout().activate()
         self.layout().activate()
         self.resize(POPUP_WIDTH, self.sizeHint().height())
-        self.move(_popup_position(self._anchor, self.size().width(), self.size().height(), self._bounds))
+        if not self.is_pinned:  # a dragged popup stays where the user dropped it
+            self.move(_popup_position(self._anchor, self.size().width(), self.size().height(), self._bounds))
 
     def _fit_list_height(self) -> None:
         """Size the scroll area to its rows, up to POPUP_MAX_HEIGHT. QScrollArea caches

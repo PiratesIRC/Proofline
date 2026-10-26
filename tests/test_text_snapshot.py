@@ -1,7 +1,13 @@
 import pytest
 from factories import snapshot
 
-from proofline.text_snapshot import ScreenRect, TypingDebouncer, loggable, preview
+from proofline.text_snapshot import (
+    ScreenRect,
+    TypingDebouncer,
+    loggable,
+    preview,
+    word_count,
+)
 
 DELAY = 1.0
 
@@ -83,3 +89,8 @@ def test_loggable_hides_text_by_default(monkeypatch):
 def test_loggable_shows_preview_when_opted_in(monkeypatch):
     monkeypatch.setenv("PROOFLINE_LOG_TEXT", "1")
     assert loggable("hello") == "5 chars 'hello'"
+
+
+@pytest.mark.parametrize(("text", "count"), [("", 0), ("  \n", 0), ("\ufeff", 0), ("one\u200b two", 2)])
+def test_word_count_ignores_zero_width_characters(text, count):
+    assert word_count(text) == count
