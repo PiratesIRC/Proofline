@@ -16,6 +16,17 @@ This build includes the following third-party software, each under its own licen
   charset-normalizer MIT                    https://github.com/jawah/charset_normalizer
   idna              BSD-3-Clause            https://github.com/kjd/idna
   pywin32           PSF License             https://github.com/mhammond/pywin32
+  anthropic         Apache-2.0              https://github.com/anthropics/anthropic-sdk-python
+  httpx2            BSD-3-Clause            https://github.com/pydantic/httpx2
+  httpcore2         BSD-3-Clause            https://github.com/pydantic/httpx2
+  h11               MIT                     https://github.com/python-hyper/h11
+  anyio             MIT                     https://github.com/agronholm/anyio
+  sniffio           MIT OR Apache-2.0       https://github.com/python-trio/sniffio
+  truststore        MIT                     https://github.com/sethmlarson/truststore
+  jiter             MIT                     https://github.com/pydantic/jiter
+  pydantic          MIT                     https://github.com/pydantic/pydantic
+  pydantic_core     MIT                     https://github.com/pydantic/pydantic/tree/main/pydantic-core
+  typing_extensions PSF-2.0                 https://github.com/python/typing_extensions
 
 Proofline works with a LanguageTool server, which is a separate program under the
 LGPL-2.1 and is not included: https://github.com/languagetool-org/languagetool

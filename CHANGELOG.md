@@ -2,6 +2,29 @@
 
 All notable changes to this project.
 
+## 0.4.0 (2026-10-26)
+
+### New
+- **Find more issues**: in the issues popup, **AI ▾** then **Find more issues** asks the AI provider
+  for problems LanguageTool missed in the whole text box. They show with a purple line and as
+  "AI suggestion" rows with the usual fix buttons and Ignore. Fixes Proofline applies keep the
+  other findings in place; editing the text yourself clears them.
+- **More AI providers.** Settings › AI now offers OpenAI, Gemini, Grok, Mistral, DeepSeek, Groq,
+  OpenRouter, Ollama (on this computer or another address you enter) and any OpenAI-compatible
+  server (LM Studio, llama.cpp, Jan, Together AI and similar), alongside Claude. One provider is
+  active at a time, and each keeps its own key, model and address. Providers other than Claude
+  and Ollama are marked "(untested)" until someone confirms them with a real account. The monthly spending
+  limit covers the cloud providers; Ollama and Other show tokens and requests instead. Copilot is
+  not supported: Microsoft and GitHub offer no public API for other apps. Existing settings keep
+  Claude.
+
+### Fixed
+- Text from the AI in the issues popup and the card is always shown as plain text.
+- One slow or failed reply from the LanguageTool server no longer shows the server error. Proofline
+  tries the check up to three times, one second apart, and shows the error only if all three fail.
+- Test in Settings › AI says "Ollama answered." (or "Other server answered.") when no key was sent,
+  instead of "The key works."
+
 ## 0.3.1 (2026-10-26)
 
 ### Fixed

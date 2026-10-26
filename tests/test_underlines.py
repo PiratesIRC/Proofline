@@ -12,7 +12,12 @@ from proofline.overlay_widgets import IssuesPopup
 from proofline.screen_coords import ScreenInfo
 from proofline.text_monitor import TextMonitor
 from proofline.text_snapshot import ScreenRect
-from proofline.underline_overlay import UnderlineOverlay, wave_path
+from proofline.underline_overlay import (
+    AI_UNDERLINE_COLOR,
+    UNDERLINE_COLOR,
+    UnderlineOverlay,
+    wave_path,
+)
 from proofline.underlines import (
     MAX_UNDERLINES,
     Span,
@@ -59,7 +64,7 @@ def test_target_skips_empty_matches_and_caps_the_count():
 
 
 def measured(target, rects=((WORD,),)):
-    return Underlines(target.field_id, target.text, FIELD, rects)
+    return Underlines(target.field_id, target.text, FIELD, rects, target.spans)
 
 
 def test_monitor_measures_only_while_the_text_matches(qtbot):
@@ -159,3 +164,22 @@ def test_wave_stays_inside_the_word_rectangle():
     bounds = wave_path(rect).boundingRect()
     assert bounds.top() >= rect.top() and bounds.bottom() <= rect.bottom() + 1
     assert bounds.left() == rect.left() and bounds.right() >= rect.right()
+
+
+def test_ai_words_are_drawn_purple(qtbot):
+    overlay = UnderlineOverlay()
+    qtbot.addWidget(overlay)
+    overlay.show_underlines(QRect(0, 0, 200, 40), [QRect(10, 10, 40, 16), QRect(80, 10, 40, 16)], [False, True])
+    assert overlay.ai_flags == (False, True)
+    image = overlay.grab().toImage()
+    ratio = overlay.devicePixelRatioF()
+    colours = {image.pixelColor(x, y).name()
+               for x in range(int(200 * ratio)) for y in range(int(20 * ratio), int(32 * ratio))}
+    assert UNDERLINE_COLOR.name() in colours and AI_UNDERLINE_COLOR.name() in colours
+
+
+def test_measurement_for_other_spans_does_not_match():
+    target = UnderlineTarget((1,), "a b", (Span(0, 1, "a"),))
+    other = UnderlineTarget((1,), "a b", (Span(0, 1, "a"), Span(2, 1, "b")))
+    measured_one = Underlines((1,), "a b", FIELD, ((ScreenRect(0, 0, 5, 5),),), target.spans)
+    assert measured_one.matches(target) and not measured_one.matches(other)

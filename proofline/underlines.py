@@ -51,9 +51,11 @@ class Underlines:
     text: str
     field_rect: ScreenRect
     rects: tuple[tuple[ScreenRect, ...], ...]
+    spans: tuple[Span, ...]  # what was measured; a target with other spans (AI findings arrived) does not match
 
     def matches(self, target: UnderlineTarget | None) -> bool:
-        return target is not None and (self.field_id, self.text) == (target.field_id, target.text)
+        return target is not None and (self.field_id, self.text, self.spans) == (
+            target.field_id, target.text, target.spans)
 
 
 def underlined_matches(matches: Sequence[Match]) -> tuple[Match, ...]:

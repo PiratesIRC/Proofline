@@ -1,8 +1,19 @@
+from pathlib import Path
+
 import pytest
 
-from proofline.ai_keys import clean_key, delete_key, has_key, load_key, save_key
+from proofline.ai_keys import (
+    KeyStore,
+    clean_key,
+    delete_key,
+    has_key,
+    load_key,
+    save_key,
+)
 
 TEST_TARGET = "ProoflineTest/anthropic-api-key"  # never the real Proofline/... target
+TEST_PREFIX = "ProoflineTest"
+TESTS_DIR = Path(__file__).resolve().parent
 
 
 @pytest.fixture(autouse=True)
@@ -10,6 +21,16 @@ def no_test_key():
     delete_key(TEST_TARGET)
     yield
     delete_key(TEST_TARGET)
+
+
+@pytest.fixture
+def store():
+    keys = KeyStore(TEST_PREFIX)
+    for pid in ("groq", "other"):
+        keys.delete(pid)
+    yield keys
+    for pid in ("groq", "other"):
+        keys.delete(pid)
 
 
 def test_clean_key_strips_spaces_newlines_and_quotes():
@@ -40,3 +61,28 @@ def test_saving_again_replaces_the_key():
 
 def test_delete_missing_key_is_quiet():
     delete_key(TEST_TARGET)
+
+
+def test_key_store_keeps_each_provider_under_its_own_target(store):
+    store.save("groq", " gsk-one ")
+    store.save("other", "local-key")
+    assert store.load("groq") == "gsk-one"
+    assert store.load("other") == "local-key"
+    assert load_key("ProoflineTest/groq-api-key") == "gsk-one"
+    store.delete("groq")
+    assert store.load("groq") is None
+    assert store.load("other") == "local-key"
+
+
+def test_key_store_refuses_an_empty_key(store):
+    with pytest.raises(ValueError):
+        store.save("groq", "  ")
+    assert store.load("groq") is None
+
+
+def test_no_test_uses_the_default_key_store_prefix():
+    # KeyStore() with the default prefix would touch the real Credential Manager entries.
+    for path in TESTS_DIR.glob("*.py"):
+        if path.name == "test_ai_keys.py":
+            continue
+        assert "KeyStore()" not in path.read_text(encoding="utf-8"), path.name

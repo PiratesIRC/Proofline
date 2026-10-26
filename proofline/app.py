@@ -12,6 +12,7 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
 from proofline import ai_keys
+from proofline.ai_find import IssueFinder
 from proofline.ai_service import AiService
 from proofline.ai_setup import AiSetup
 from proofline.app_identity import DISPLAY_NAME
@@ -102,6 +103,9 @@ class LanguageToolApp(QObject):
         self._overlay.rephrase_requested.connect(self._rephraser.start)
         self._monitor.field_changed.connect(self._rephraser.on_field_changed)
         self._monitor.caret_offset_ready.connect(self._on_caret_offset)
+        self._finder = IssueFinder(self._ai, self._overlay.popup, self._overlay.set_ai_matches)
+        self._overlay.find_more_requested.connect(self._finder.start)
+        self._monitor.field_changed.connect(self._finder.on_field_changed)
         self._monitor.field_changed.connect(self._overlay.on_field_changed)
         self._checker.checked.connect(self._overlay.on_checked)
         self._checker.failed.connect(self._overlay.on_check_failed)
@@ -140,7 +144,7 @@ class LanguageToolApp(QObject):
         self._show_update_status()
 
         self._usage = usage or UsageReporting(lambda: self._config)
-        self._ai_setup = AiSetup(self._settings.ai, self._ai, ai_keys.save_key, ai_keys.delete_key, ai_keys.load_key)
+        self._ai_setup = AiSetup(self._settings.ai, self._ai, lambda: self._config, ai_keys.KeyStore())
 
     @property
     def config(self) -> Config:
@@ -171,6 +175,7 @@ class LanguageToolApp(QObject):
         self._monitor.set_config(config)
         self._integration.apply(config, previous)
         self._overlay.on_config_changed()
+        self._ai_setup.config_changed(previous)
         self._settings.config_changed()
         self._quick.refresh()
         if (config.server_url, config.language) != (previous.server_url, previous.language):

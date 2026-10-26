@@ -284,7 +284,7 @@ def test_rephrase_flow_is_wired_through_the_overlay(qapp, tmp_path):
     lt_app = LanguageToolApp(MagicMock(), tmp_path / "config.json", monitor=monitor, overlay=overlay,
                              integration=MagicMock(), health=MagicMock(), quick=MagicMock(),
                              updates=MagicMock(current_info=MagicMock(return_value=None)), usage=MagicMock(),
-                             ai=AiService(Config, lambda key: None, lambda: None, tmp_path / "ai_usage.jsonl"))
+                             ai=AiService(Config, lambda spec, key, address: None, lambda pid: None, tmp_path / "ai_usage.jsonl"))
     overlay.rephrase_requested.connect.assert_any_call(lt_app._rephraser.start)
     monitor.field_changed.connect.assert_any_call(lt_app._rephraser.on_field_changed)
     assert lt_app._rephraser.card is overlay.card
@@ -294,7 +294,7 @@ def _ai_app(tmp_path, enabled):
     overlay, monitor = MagicMock(), MagicMock()
     overlay.field_anchor.return_value = (QRect(0, 0, 0, 0), QRect(0, 0, 1920, 1040), "#2e7d32")
     overlay.rephrase_target.return_value = None  # a blank line: nothing starts
-    ai = AiService(lambda: Config(ai_enabled=enabled), lambda key: None, lambda: "sk-ant-x",
+    ai = AiService(lambda: Config(ai_enabled=enabled), lambda spec, key, address: None, lambda pid: "sk-ant-x",
                    tmp_path / "ai_usage.jsonl")
     return LanguageToolApp(MagicMock(), tmp_path / "config.json", monitor=monitor, overlay=overlay,
                            integration=MagicMock(), health=MagicMock(), quick=MagicMock(),
@@ -348,3 +348,13 @@ def test_failed_rephrase_counts_nothing(app):
     app._on_replace_requested(request)
     app._on_replace_finished(False, "Text changed; nothing replaced")
     app._usage.on_ai_rephrase_applied.assert_not_called()
+
+
+def test_find_more_issues_is_wired(qapp, tmp_path):
+    overlay, monitor = MagicMock(), MagicMock()
+    lt_app = LanguageToolApp(MagicMock(), tmp_path / "config.json", monitor=monitor, overlay=overlay,
+                             integration=MagicMock(), health=MagicMock(), quick=MagicMock(),
+                             updates=MagicMock(current_info=MagicMock(return_value=None)), usage=MagicMock(),
+                             ai=AiService(Config, lambda spec, key, address: None, lambda pid: None, tmp_path / "ai_usage.jsonl"))
+    overlay.find_more_requested.connect.assert_any_call(lt_app._finder.start)
+    monitor.field_changed.connect.assert_any_call(lt_app._finder.on_field_changed)

@@ -3,6 +3,8 @@ from dataclasses import replace
 
 import pytest
 
+from proofline.ai_prices import DEFAULT_MODEL
+from proofline.ai_providers import DEFAULT_OLLAMA_URL
 from proofline.config import (
     Config,
     ConfigError,
@@ -209,8 +211,8 @@ def test_ai_cap_outside_range_is_refused(bad):
         save_config(replace(Config(), ai_monthly_cap_cents=bad))
 
 
-@pytest.mark.parametrize("bad", ["gpt-x", "", None])
-def test_unknown_ai_model_is_refused(bad):
+@pytest.mark.parametrize("bad", ["has space", "", None])
+def test_malformed_ai_model_is_refused(bad):
     with pytest.raises(ConfigError):
         save_config(replace(Config(), ai_model=bad))
 
@@ -227,18 +229,46 @@ def test_ai_settings_round_trip(tmp_path):
     assert saved.ai_monthly_cap_cents == 250
 
 
-def test_load_replaces_a_retired_ai_model_and_keeps_other_settings(tmp_path):
+def test_load_keeps_a_well_formed_ai_model_name_and_other_settings(tmp_path):
     path = tmp_path / "config.json"
-    path.write_text(json.dumps({"language": "de-DE", "ai_enabled": True, "ai_model": "claude-retired"}),
+    path.write_text(json.dumps({"language": "de-DE", "ai_enabled": True, "ai_model": "claude-new-6-0"}),
                     encoding="utf-8")
     loaded = load_config(path)
-    assert loaded.ai_model == Config().ai_model
+    assert loaded.ai_model == "claude-new-6-0"
     assert loaded.language == "de-DE" and loaded.ai_enabled
 
 
-def test_save_still_rejects_an_unknown_ai_model(tmp_path):
+def test_save_rejects_a_malformed_ai_model_name(tmp_path):
     with pytest.raises(ConfigError):
-        save_config(Config(ai_model="claude-retired"), tmp_path / "config.json")
+        save_config(Config(ai_model="has space"), tmp_path / "config.json")
+
+
+def test_bad_ai_values_fall_back_alone(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"language": "en-GB", "ai_provider": "nope", "ai_ollama_url": "ftp://x",
+                                "ai_models": ["gemini=ok-model", "bad entry"], "ai_model": "has space"}))
+    config = load_config(path)
+    assert config.language == "en-GB"
+    assert (config.ai_provider, config.ai_ollama_url, config.ai_model) == (
+        "anthropic", DEFAULT_OLLAMA_URL, DEFAULT_MODEL)
+    assert config.ai_models == ("gemini=ok-model",)
+
+
+def test_typed_model_saved_and_kept(tmp_path):
+    save_config(Config().with_ai_model("openai", "gpt-7-new"), tmp_path / "c.json")
+    assert load_config(tmp_path / "c.json").ai_model_for("openai") == "gpt-7-new"
+    assert Config().ai_model_for("openai") == "gpt-6-luna" and Config().ai_model_for("ollama") == ""
+
+
+def test_bad_address_on_save_is_a_config_error(tmp_path):
+    with pytest.raises(ConfigError):
+        save_config(Config(ai_other_url="ftp://x"), tmp_path / "c.json")
+
+
+@pytest.mark.parametrize("field", ["ai_other_url", "ai_ollama_url"])
+def test_repr_redacts_ai_addresses(field):
+    text = repr(Config(**{field: "https://u:secret@h.example/v1"}))
+    assert "secret" not in text and "h.example" in text
 
 
 def test_ai_rephrase_hotkey_defaults_to_empty_and_round_trips(tmp_path):
@@ -246,3 +276,58 @@ def test_ai_rephrase_hotkey_defaults_to_empty_and_round_trips(tmp_path):
     path = tmp_path / "config.json"
     save_config(Config(hotkey_ai_rephrase="ctrl+alt+r"), path)
     assert load_config(path).hotkey_ai_rephrase == "ctrl+alt+r"
+
+
+def test_with_ai_model_replaces_the_same_provider_entry():
+    config = Config().with_ai_model("groq", "openai/gpt-oss-20b").with_ai_model("groq", "openai/gpt-oss-120b")
+    assert config.ai_models == ("groq=openai/gpt-oss-120b",)
+
+
+def test_load_drops_a_repeated_provider_entry_keeping_the_first(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"ai_models": ["groq=openai/gpt-oss-20b", "groq=openai/gpt-oss-120b"]}),
+                    encoding="utf-8")
+    assert load_config(path).ai_models == ("groq=openai/gpt-oss-20b",)
+
+
+def test_ai_address_for_by_provider():
+    config = Config(ai_ollama_url="http://h:11434", ai_other_url="http://o:8000/v1")
+    assert (config.ai_address_for("ollama"), config.ai_address_for("other"), config.ai_address_for("openai")) == (
+        "http://h:11434", "http://o:8000/v1", "")
+
+
+def test_ai_model_for_anthropic_is_ai_model():
+    assert Config(ai_model="claude-sonnet-5-5").ai_model_for("anthropic") == "claude-sonnet-5-5"
+
+
+def test_load_empty_ollama_url_falls_back_to_default(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"ai_ollama_url": ""}), encoding="utf-8")
+    assert load_config(path).ai_ollama_url == DEFAULT_OLLAMA_URL
+
+
+def test_other_key_address_defaults_to_empty_and_round_trips(tmp_path):
+    assert Config().ai_other_key_address == ""
+    path = tmp_path / "config.json"
+    save_config(Config(ai_other_key_address="http://localhost:1234/v1"), path)
+    assert load_config(path).ai_other_key_address == "http://localhost:1234/v1"
+
+
+def test_other_key_address_is_validated_and_normalised(tmp_path):
+    assert save_config(Config(ai_other_key_address="http://localhost:1234/v1/"),
+                       tmp_path / "c.json").ai_other_key_address == "http://localhost:1234/v1"
+    with pytest.raises(ConfigError):
+        save_config(Config(ai_other_key_address="ftp://x"), tmp_path / "d.json")
+
+
+def test_bad_other_key_address_on_load_falls_back_to_empty(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"ai_other_key_address": "ftp://x", "ai_other_url": "http://localhost:1234/v1"}),
+                    encoding="utf-8")
+    loaded = load_config(path)
+    assert loaded.ai_other_key_address == "" and loaded.ai_other_url == "http://localhost:1234/v1"
+
+
+def test_repr_redacts_other_key_address():
+    text = repr(Config(ai_other_key_address="https://u:secret@h.example/v1"))
+    assert "secret" not in text and "h.example" in text

@@ -69,7 +69,9 @@ From the operator **[operator]**:
 - **Card** (`issue_card.py`): a **Rephrase** link in the action row. It rewords the sentence
   holding the flagged word. The rewordings replace the card's fix list while it waits, with a
   small "Asking Claude..." line and a Cancel link.
-- **Popup** (`overlay_widgets.IssuesPopup`): a new **AI** button in the header opens a short menu:
+- **Popup** (`overlay_widgets.IssuesPopup`): a new **AI** link in the header opens a short inline row
+  (built at step 3 as a row of links, not a Qt menu: a menu grabs the mouse and would eat the
+  user's click back into the field):
   Rewrite for clarity, Change tone (submenu of the four presets), Find more issues. The popup is
   also where results of the whole-field jobs appear.
 - **Badge**: when there are no LanguageTool issues the popup still opens from the badge (it

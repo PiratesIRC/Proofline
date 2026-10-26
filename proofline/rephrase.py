@@ -23,7 +23,7 @@ from proofline.text_snapshot import FieldSnapshot
 
 log = logging.getLogger(__name__)
 
-NO_OPTIONS_MESSAGE = "Claude found no better wording."
+NO_OPTIONS_MESSAGE = "The AI found no better wording."
 SENTENCE_TOO_LONG_MESSAGE = "This sentence is too long to rephrase (over 8,000 characters)."
 CANCELLED_BUSY_MESSAGE = "The cancelled request is still finishing. Try again in a moment."
 CARET_UNKNOWN_MESSAGE = "Proofline can't find the caret in this field."

@@ -33,6 +33,9 @@ from PyQt6.QtWidgets import QApplication, QWidget
 APP = QApplication(sys.argv[:1])
 
 from proofline import issue_card, overlay_widgets, tray_flyout, ui_kit
+from proofline.ai_jobs import AI_CATEGORY, AI_RULE_ID, AI_SHORT_MESSAGE
+from proofline.ai_page_text import usage_text
+from proofline.ai_providers import provider
 from proofline.ai_usage import Totals
 from proofline.badge import BadgeState, BadgeWidget
 from proofline.config import Config
@@ -55,6 +58,9 @@ MATCHES = (
     Match(58, 7, "Possible spelling mistake found.", "Spelling mistake", ("tomorrow",),
           "MORFOLOGIK_RULE_EN_US", "Possible Typo", "tomorow", "TYPOS"),
 )
+AI_QUOTE = "in order to"
+AI_MATCH = Match(SAMPLE_TEXT.index(AI_QUOTE), len(AI_QUOTE), "Wordy: 'to' says the same thing.", AI_SHORT_MESSAGE,
+                 ("to",), AI_RULE_ID, AI_CATEGORY, AI_QUOTE, AI_CATEGORY)
 STORAGE_HINT = Path("%LOCALAPPDATA%") / "Proofline" / "logs"  # shown instead of this PC's real path
 
 
@@ -119,14 +125,25 @@ def ai_rephrase(dark: bool) -> None:
     card.hide()
 
 
+def ai_find(dark: bool) -> None:
+    """The issues popup after Find more issues: an AI suggestion row, with the AI links open."""
+    use_theme(dark)
+    widget = overlay_widgets.IssuesPopup()
+    widget.show_issues((MATCHES[0], AI_MATCH), "Notepad", QRect(900, 700, 30, 30),
+                       QRect(0, 0, 1920, 1040), text=SAMPLE_TEXT, ai_available=True)
+    widget._ai_button.click()  # open the AI row (Find more issues)
+    save(widget, f"ai-find-{'dark' if dark else 'light'}.png")
+    widget.hide()
+
+
 def ai_settings(dark: bool) -> None:
     """The AI page with a saved key (the key itself is never read: no Credential Manager access)."""
     use_theme(dark)
     window = SettingsWindow(lambda: Config(ai_enabled=True), lambda config: config, STORAGE_HINT)
     window.show_settings()
     window.nav.setCurrentRow(window.pages.index(window.ai))
-    window.ai.set_key_saved(True)
-    window.ai.show_totals(Totals(today=0.0001, month=0.0021, requests_month=12))
+    window.ai.set_key_saved("anthropic", True)
+    window.ai.show_usage(usage_text(provider("anthropic"), "", "", Totals(today=0.0001, month=0.0021, requests_month=12), None, 100))
     save(window, f"ai-settings-{'dark' if dark else 'light'}.png")
     window.close()
 
@@ -313,6 +330,7 @@ def main() -> int:
         flyout(dark)
         settings(dark)
         ai_rephrase(dark)
+        ai_find(dark)
         ai_settings(dark)
     badge_images = badges()
     badge_strip(badge_images)

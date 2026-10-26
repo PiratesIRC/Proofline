@@ -54,9 +54,11 @@ choose and shows a small badge beside the field. Click the badge, click a sugges
   answered but something is wrong (orange), or there is no connection (red).
 - **Keyboard friendly.** `Ctrl+Alt+J` applies the first suggestion, `Ctrl+Alt+L` checks now,
   `Ctrl+Alt+P` turns checking on or off. Record your own combinations in Settings.
-- **Optional AI rewording.** Off by default. It uses your own Claude API key. **AI Rephrase** in
-  the card under an underlined word rewrites one sentence, with the changed words in bold, and
-  only that sentence is sent. A monthly spending limit stops AI requests when the next one could
+- **Optional AI suggestions.** Off by default. They use your own API key for a provider you
+  choose, or a local Ollama server with no key and no cost. **AI Rephrase** in the card under an
+  underlined word rewrites one sentence, with the changed words in bold, and only that sentence
+  is sent. **Find more issues** in the issues popup asks the AI for problems LanguageTool missed
+  in the whole text box. A monthly spending limit stops cloud AI requests when the next one could
   take the month past it. See [AI suggestions](#ai-suggestions-optional).
 - **Light and dark**, following Windows or your choice, with your accent colour.
 - **Installer or portable**, no administrator rights needed for either.
@@ -204,18 +206,53 @@ Change them in **Settings › Shortcuts**: click a box and press the keys.
 
 ### AI suggestions (optional)
 
-Proofline can ask Claude, Anthropic's AI model, to reword a sentence. It is off until you turn
-it on, it uses your own Claude API key, and it sends text only when you click or press its
-shortcut.
+Proofline can ask an AI model to reword a sentence or to find problems LanguageTool missed. It
+is off until you turn it on, it works with the provider you choose, and it sends text only when
+you click or press its shortcut. The default provider is Claude, Anthropic's AI model.
 
-1. Get an API key from [console.anthropic.com](https://console.anthropic.com/).
-2. In **Settings › AI**, paste the key, click **Save**, turn on **Use AI suggestions**, and
-   click **Test**. The key is kept in Windows Credential Manager, not in the settings file.
-3. Choose a model (Haiku is the default, the fastest and cheapest) and a **Monthly spending
-   limit** (default $1.00).
+1. Choose a provider in **Settings › AI**. Each provider needs your own API key from its website
+   (paste it, click **Save**, then **Test**), or, for Ollama and Other, a server address.
+   The key is kept in Windows Credential Manager, not in the settings file.
+2. Turn on **Use AI suggestions**.
+3. Choose a model. The cloud providers have a short built-in list, cheapest first, and the
+   default is the cheapest; Ollama, Other and OpenRouter list the models their server offers.
+   Choose **Other model...** at the end of any list to type a name instead.
+4. For cloud providers, set the **Monthly spending limit** (default $1.00). One limit covers all
+   cloud providers together.
+
+| Provider | What you need | Notes |
+|---|---|---|
+| Claude (Anthropic) | API key from [console.anthropic.com](https://console.anthropic.com/) | Tested with a real account. Privacy: [privacy page](https://privacy.anthropic.com/). |
+| OpenAI | API key from [platform.openai.com](https://platform.openai.com/) | (untested). Your text goes to OpenAI. Privacy: [API data guide](https://developers.openai.com/api/docs/guides/your-data). |
+| Gemini (Google) | API key from [aistudio.google.com](https://aistudio.google.com/) | (untested). With a free key, Google may use your text to improve its products and people may read it. Paid keys are covered by different terms. Privacy: [Gemini API terms](https://ai.google.dev/gemini-api/terms). |
+| Grok (xAI) | API key from [console.x.ai](https://console.x.ai/) | (untested). Your text goes to xAI. Privacy: [security and data FAQ](https://docs.x.ai/developers/faq/security). |
+| Mistral | API key from [console.mistral.ai](https://console.mistral.ai/) | (untested). Mistral may use API data from free accounts for training; check the privacy settings in the Mistral console. Privacy: [opt-out article](https://help.mistral.ai/en/articles/455207-can-i-opt-out-of-my-input-or-output-data-being-used-for-training). |
+| DeepSeek | API key from [platform.deepseek.com](https://platform.deepseek.com/) | (untested). DeepSeek's general privacy policy says it stores data on servers in China. Privacy: [privacy policy](https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html). |
+| Groq | API key from [console.groq.com](https://console.groq.com/) | (untested). Your text goes to Groq. Privacy and terms: [services agreement](https://console.groq.com/docs/legal/services-agreement). |
+| OpenRouter | API key from [openrouter.ai](https://openrouter.ai/) | (untested). Requests go to the company running the model you pick; Proofline asks OpenRouter to skip companies that store or train on your text. The model list is loaded from OpenRouter (Refresh). Privacy: [privacy page](https://openrouter.ai/privacy). |
+| Ollama | Nothing. Ollama running on this computer (default `http://localhost:11434`), or another address you enter | Tested with a live Ollama server (qwen2.5:3b on localhost, 2026-10-26). No key and no cost. Your text stays on this computer at a localhost address; at any other address it goes to that computer. A cloud model (Proofline recognises one by a name ending in `-cloud` or `:cloud`, which is unverified) sends your text to Ollama's servers. |
+| Other OpenAI-compatible server | The server's address (LM Studio, llama.cpp `llama-server`, Jan, Together AI and similar), and a key only if the server asks for one | (untested). Your text, and your key if you saved one, go to that address. Cost is not tracked, because the server may be paid. |
+
+Copilot is not supported: Microsoft and GitHub offer no public API that other apps can use with
+your Copilot subscription.
+
+**(untested)** means no one has yet checked that provider with a real account. Claude and Ollama are the
+tested ones. If an untested provider does not work for you, please report it on GitHub; the label
+comes off once it is confirmed to work. Plain `http://` to a computer other than this one is not
+encrypted, so Proofline warns about it, and a key cannot be saved for such an address; use
+`https://`, or turn off the server's key requirement on a trusted network.
+
+The model lists for Ollama, Other and OpenRouter come from the provider's server. They are fetched
+when you press **Refresh**, when you save an Ollama or Other address, and when you pick OpenRouter (OpenRouter's prices
+are also loaded at startup, and when you turn AI on, while it is the selected provider, because the spending check
+needs them; a failed load is tried once more after 30 seconds);
+never when the page opens. Each provider remembers its own model, including a typed name. A typed
+model is charged at that provider's most expensive listed model (for OpenRouter, the most
+expensive model in the loaded list). A typed model that costs more than every listed one can pass the
+limit. The page says the cost is estimated.
 
 Then, in the card under an underlined word, click **AI Rephrase**. The card shows the sentence it
-picked and "Asking Claude...", then up to three rewordings with the changed words in bold.
+picked and "Asking the AI...", then up to three rewordings with the changed words in bold.
 Click one to replace that sentence; nothing else in the text box changes. For a sentence with
 no underlined word, set a shortcut for **AI Rephrase the sentence at the caret** in
 **Settings › Shortcuts** (none by default), put the caret in the sentence and press it.
@@ -223,21 +260,41 @@ no underlined word, set a shortcut for **AI Rephrase the sentence at the caret**
 <table>
   <tr>
     <td align="center"><img src="docs/images/ai-rephrase-light.png" width="300" alt="The card under an underlined word, with AI Rephrase rewordings of a sentence"><br><sub>AI Rephrase in the card</sub></td>
-    <td align="center"><img src="docs/images/ai-settings-light.png" width="500" alt="Settings, AI page with the switch, API key, model and monthly limit"><br><sub>Settings, AI</sub></td>
+    <td align="center"><img src="docs/images/ai-find-light.png" width="300" alt="The issues popup with the AI links open and an AI suggestion row below a spelling mistake"><br><sub>Find more issues</sub></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="docs/images/ai-settings-light.png" width="600" alt="Settings, AI page with the switch, provider, API key, model and monthly limit"><br><sub>Settings, AI</sub></td>
   </tr>
 </table>
 
-- Only that one sentence is sent to Anthropic, with your key.
-- Every request is counted in `ai_usage.jsonl` (token counts and cost, never your text), and
-  **Settings › AI** shows today's and this month's totals. Once a request could take the month
-  past your limit, AI requests stop until next month or a higher limit.
+- For AI Rephrase, only that one sentence is sent to the provider you chose, with its key.
+- Every request is counted in `ai_usage.jsonl` (provider, token counts and cost, never your
+  text), and **Settings › AI** shows today's and this month's totals. Cloud providers show
+  dollars against the spending limit; Ollama and Other show tokens and requests instead. Once a
+  cloud request could take the month past your limit, AI requests stop until next month or a
+  higher limit.
 - **Cancel** hides the answer, but a request already sent still finishes and still counts
   toward the limit.
-- If you type in the text box while Claude is answering, the answer is dropped.
-- If the Claude API rejects your key, **AI Rephrase** is hidden until you save a new key or
+- If you type in the text box while the AI is answering, the answer is dropped.
+- If the provider rejects your key, **AI Rephrase** is hidden until you save a new key or
   **Test** succeeds.
+- Each provider keeps its own key, model and address. Switching provider does not send one
+  provider's key to another, and a Test result for a provider you have since left is ignored.
 - The sentence finder is simple: it can split after abbreviations such as "e.g.", so check the
   sentence shown in the card.
+
+**Find more issues.** Open the issues popup from the badge, click **AI ▾**, then **Find more
+issues**. The AI reads the whole text box and returns problems LanguageTool missed. They get a
+purple line (LanguageTool's are red) and a popup row titled "AI suggestion", with the same fix
+buttons and **Ignore for now**.
+
+- The whole text of the box is sent, at most 8,000 characters. On Claude a full box costs about
+  $0.0013 on Haiku and about $0.05 on Opus; on other cloud providers the cost depends on their
+  prices. Either way it counts toward the monthly limit like any other request.
+- The findings belong to that text. If you edit it yourself, they disappear; a fix Proofline
+  applies for you keeps the others in place.
+- On text with no LanguageTool issues, the badge appears only while **Settings › Appearance ›
+  Show the badge in every text field** is on (the default).
 
 ### When a text box isn't checked
 
@@ -258,7 +315,7 @@ Settings save as soon as you change them, except the server address (**Save**) a
 | Apps & fields | Add a text field, apps (pick a running app) and window titles to skip, apps to always check, custom fields |
 | Appearance | Theme (follow Windows / light / dark), accent and tray colour, badge visibility, underlines |
 | Shortcuts | Three global shortcuts, recorded by pressing the keys |
-| AI | Use AI suggestions (on or off), the Claude API key (Save, Test), the model with its prices, the monthly spending limit, and today's and this month's usage totals |
+| AI | Use AI suggestions (on or off), the provider, its API key (Save, Test) or server address, the model with its prices, the monthly spending limit (cloud providers), and today's and this month's usage totals |
 | Advanced | Debug mode, diagnostic report and logs, check for updates (with Check now), share anonymous usage counts, version, Help and Releases links |
 
 All options and their `config.json` names are listed in
@@ -292,7 +349,8 @@ The app talks to LanguageTool's HTTP API (`POST /v2/check`).
 - Text is sent only to the server you configure. A yellow warning appears, and you are asked to
   confirm, if the address is plain `http://` to another computer. The one exception is
   [AI suggestions](#ai-suggestions-optional): off by default, and when you turn them on, the
-  sentence you ask about is sent to Anthropic's Claude API.
+  text you ask about is sent to the AI provider you chose (or to the Ollama or other server
+  address you set), as described in that section.
 - Password fields are never read. By default the app also skips password managers, terminals,
   remote desktop and VM windows, code and spreadsheet editors, browser address bars, numeric
   fields, fields labelled like one-time codes, card numbers, SSNs, PINs, API keys or tokens, and

@@ -19,7 +19,7 @@ import logging
 import re
 
 from PyQt6.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QHideEvent, QMouseEvent
+from PyQt6.QtGui import QHideEvent, QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from proofline.ai_jobs import is_ai_match
 from proofline.config import DEFAULT_TRAY_COLOR
 from proofline.dictionary import is_spelling_match
 from proofline.hidden_chars import codepoint_label, is_hidden_match
@@ -57,6 +58,10 @@ DISABLE_RULE_TEXT = "Turn off this rule"
 UNDO_TEXT = "Undo"
 REMOVE_TEXT = "(remove)"
 NO_ISSUES_TEXT = "No issues found."
+AI_TEXT = "AI \u25be"
+FIND_MORE_TEXT = "Find more issues"
+AI_CANCEL_TEXT = "Cancel"
+AI_RETRY_TEXT = "Retry"
 DRAG_TOOLTIP = "Drag to move. A moved popup stays open until you close it."
 WHITESPACE = re.compile(r"\s+")
 
@@ -119,6 +124,10 @@ class IssuesPopup(QWidget):
     disable_window_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     undo_requested = pyqtSignal(str, str)  # config field, value to remove
+    find_more_requested = pyqtSignal()  # the AI row's Find more issues
+    ai_cancel_requested = pyqtSignal()
+    ai_retry_requested = pyqtSignal()
+    shown = pyqtSignal()  # the popup became visible (AI status is shown again then)
 
     def __init__(self) -> None:
         super().__init__()
@@ -135,6 +144,7 @@ class IssuesPopup(QWidget):
         self._undo: tuple[str, str] | None = None
         self._press_offset: QPoint | None = None  # cursor minus top-left while the button is down
         self._pinned = False
+        self._ai_available = False
         self._notice_timer = QTimer(self)
         self._notice_timer.setSingleShot(True)
         self._notice_timer.timeout.connect(self.hide)
@@ -148,6 +158,8 @@ class IssuesPopup(QWidget):
         layout = QVBoxLayout(self._frame)
         layout.setContentsMargins(14, 10, 10, 10)
         layout.addLayout(self._build_header())
+        layout.addWidget(self._build_ai_row())
+        layout.addWidget(self._build_ai_status())
         layout.addWidget(self._build_notice())
         layout.addWidget(self._build_list())
         layout.addWidget(self._build_footer())
@@ -180,11 +192,46 @@ class IssuesPopup(QWidget):
         close_button.setToolTip("Close")
         close_button.setCursor(Qt.CursorShape.PointingHandCursor)
         close_button.clicked.connect(self.hide)
+        self._ai_button = link_button(AI_TEXT)
+        self._ai_button.clicked.connect(lambda: self._set_ai_row_open(self._ai_row.isHidden()))
+        self._ai_button.hide()
         row = QHBoxLayout()
         row.addWidget(self._header)
         row.addStretch(1)  # keeps Close on the right while the header is hidden
+        row.addWidget(self._ai_button, alignment=Qt.AlignmentFlag.AlignTop)
         row.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignTop)
         return row
+
+    def _build_ai_row(self) -> QWidget:
+        """The AI actions, opened from the header link (inline: a QMenu would take the click back to the field)."""
+        self._ai_row = QWidget()
+        row = QHBoxLayout(self._ai_row)
+        row.setContentsMargins(12, 0, 0, 0)
+        find = link_button(FIND_MORE_TEXT)
+        find.clicked.connect(self._on_find_more)
+        row.addWidget(find)
+        row.addStretch()
+        self._ai_row.hide()
+        return self._ai_row
+
+    def _build_ai_status(self) -> QWidget:
+        self._ai_status = QWidget()
+        self._ai_status_label = QLabel()
+        self._ai_status_label.setObjectName("cardDescription")
+        self._ai_status_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._ai_status_label.setWordWrap(True)
+        self._ai_cancel = link_button(AI_CANCEL_TEXT)
+        self._ai_cancel.clicked.connect(self.ai_cancel_requested.emit)
+        self._ai_retry = link_button(AI_RETRY_TEXT)
+        self._ai_retry.clicked.connect(self.ai_retry_requested.emit)
+        row = QHBoxLayout(self._ai_status)
+        row.setContentsMargins(0, 2, 0, 2)
+        row.setSpacing(14)
+        row.addWidget(self._ai_status_label, stretch=1)
+        row.addWidget(self._ai_cancel)
+        row.addWidget(self._ai_retry)
+        self._ai_status.hide()
+        return self._ai_status
 
     def _build_notice(self) -> QFrame:
         self._notice = QFrame()
@@ -239,10 +286,17 @@ class IssuesPopup(QWidget):
 
     def show_issues(
         self, matches: tuple[Match, ...], app_name: str, anchor: QRect, bounds: QRect,
-        text: str = "", accent: str = DEFAULT_TRAY_COLOR,
+        text: str = "", accent: str = DEFAULT_TRAY_COLOR, ai_available: bool = False,
     ) -> None:
-        """Show matches beside the badge at anchor. text is the checked field text, for excerpts."""
+        """Show matches beside the badge at anchor. text is the checked field text, for excerpts.
+
+        The AI row and status line are left as they are: a recheck re-shows the popup mid-request.
+        """
         self._accent, self._text, self._anchor, self._bounds = accent, text, anchor, bounds
+        self._ai_available = ai_available
+        self._ai_button.setVisible(ai_available)
+        if not ai_available:
+            self._ai_row.hide()
         self._notice_timer.stop()
         restyled = self._apply_style()  # the theme or accent may have changed since the last time
         self._disable_app_button.setText(f"Turn off in {app_name}")
@@ -265,8 +319,37 @@ class IssuesPopup(QWidget):
         if self.isVisible():
             self._refit()
 
+    def show_ai_status(self, message: str, cancel: bool = False, retry: bool = False) -> None:
+        """One line about the running or finished AI request, with Cancel and/or Retry."""
+        self._ai_status_label.setText(message)
+        self._ai_cancel.setVisible(cancel)
+        self._ai_retry.setVisible(retry)
+        self._ai_status.show()
+        if self.isVisible():
+            self._refit()
+
+    def clear_ai_status(self) -> None:
+        self._ai_status.hide()
+        if self.isVisible():
+            self._refit()
+
+    def _hide_ai_parts(self) -> None:
+        self._ai_button.hide()
+        self._ai_row.hide()
+        self._ai_status.hide()
+
+    def _set_ai_row_open(self, open_: bool) -> None:
+        self._ai_row.setVisible(open_ and self._ai_available)
+        if self.isVisible():
+            self._refit()
+
+    def _on_find_more(self) -> None:
+        self._set_ai_row_open(False)
+        self.find_more_requested.emit()
+
     def show_notice_only(self, message: str, field: str, value: str) -> None:
         """Replace the issues with just the notice; the popup closes itself after a while."""
+        self._hide_ai_parts()
         self._header.hide()
         self._scroll.hide()
         self._footer.hide()
@@ -276,6 +359,7 @@ class IssuesPopup(QWidget):
 
     def show_status(self, message: str) -> None:
         """A pinned popup whose issues no longer apply: show message instead of the list."""
+        self._hide_ai_parts()
         self._header.setText(message)
         self._header.show()
         self._scroll.hide()
@@ -304,6 +388,10 @@ class IssuesPopup(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self._press_offset = None
 
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self.shown.emit()
+
     def hideEvent(self, event: QHideEvent) -> None:
         super().hideEvent(event)
         self._pinned = False
@@ -312,6 +400,8 @@ class IssuesPopup(QWidget):
         self._undo = None
         self._notice.hide()
         self._set_more_open(False)
+        self._ai_row.hide()
+        self._ai_status.hide()  # IssueFinder shows its status again when the popup reopens
 
     def _apply_style(self) -> bool:
         """Restyle when the theme or accent changed (style sheets resolve colours once)."""
@@ -390,7 +480,9 @@ class IssuesPopup(QWidget):
         layout.setSpacing(4)
         title = QLabel(match.short_message or match.category or "Possible issue")
         title.setObjectName("issueTitle")
+        title.setTextFormat(Qt.TextFormat.PlainText)
         message = QLabel(match.message)
+        message.setTextFormat(Qt.TextFormat.PlainText)  # AI messages come from the AI provider: never rich text
         message.setWordWrap(True)
         layout.addWidget(title)
         layout.addWidget(message)
@@ -437,7 +529,7 @@ class IssuesPopup(QWidget):
         actions = [(IGNORE_TEXT, self.ignore_requested)]
         if is_spelling_match(match):
             actions.append((ADD_WORD_TEXT, self.add_word_requested))
-        if match.rule_id:
+        if match.rule_id and not is_ai_match(match):  # AI findings have no LanguageTool rule to turn off
             actions.append((DISABLE_RULE_TEXT, self.disable_rule_requested))
         row = QHBoxLayout()
         row.setSpacing(14)

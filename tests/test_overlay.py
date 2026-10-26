@@ -1,10 +1,11 @@
 from dataclasses import replace
 
 import pytest
+from card_helpers import click_link, link_texts, visible_label_texts
 from factories import snapshot
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import QMouseEvent
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QLabel, QWidget
 
 from proofline.badge import BADGE_SIZE, BadgeState, BadgeWidget
 from proofline.config import Config
@@ -15,6 +16,11 @@ from proofline.overlay_controller import (
     badge_position,
 )
 from proofline.overlay_widgets import (
+    AI_CANCEL_TEXT,
+    AI_RETRY_TEXT,
+    AI_TEXT,
+    DISABLE_RULE_TEXT,
+    FIND_MORE_TEXT,
     POPUP_MAX_HEIGHT,
     IssuesPopup,
     _popup_position,
@@ -387,3 +393,72 @@ def test_short_click_on_popup_does_not_pin_it(qtbot, harness):
     assert not harness.popup.is_pinned
     harness.controller.on_field_changed(replace(snap, text=snap.text + "x"))
     assert not harness.popup.isVisible()
+
+
+AI_MATCH = Match(0, 5, "Use have.", "AI suggestion", ("I have",), "AI_SUGGESTION", "AI", "I has", "AI")
+
+
+@pytest.fixture
+def popup(qtbot):
+    widget = IssuesPopup()
+    qtbot.addWidget(widget)
+    return widget
+
+
+def test_ai_link_only_when_ai_is_available(popup):
+    popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS)
+    assert AI_TEXT not in link_texts(popup)
+    popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, ai_available=True)
+    assert AI_TEXT in link_texts(popup)
+
+
+def test_ai_link_opens_find_more_issues(qtbot, popup):
+    popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, ai_available=True)
+    click_link(popup, AI_TEXT)
+    with qtbot.waitSignal(popup.find_more_requested):
+        click_link(popup, FIND_MORE_TEXT)
+    assert FIND_MORE_TEXT not in link_texts(popup)
+
+
+def test_ai_status_line_offers_cancel_and_retry_and_survives_a_refresh(qtbot, popup):
+    popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, ai_available=True)
+    popup.show_ai_status("Asking the AI...", cancel=True)
+    popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, ai_available=True)  # a recheck
+    assert "Asking the AI..." in visible_label_texts(popup)
+    with qtbot.waitSignal(popup.ai_cancel_requested):
+        click_link(popup, AI_CANCEL_TEXT)
+    popup.show_ai_status("Could not reach the Claude API.", retry=True)
+    with qtbot.waitSignal(popup.ai_retry_requested):
+        click_link(popup, AI_RETRY_TEXT)
+    popup.clear_ai_status()
+    assert "Could not reach the Claude API." not in visible_label_texts(popup)
+
+
+def test_ai_parts_follow_popup_modes(popup):
+    popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, ai_available=True)
+    click_link(popup, AI_TEXT)
+    popup.show_ai_status("Asking the AI...", cancel=True)
+    popup.show_notice_only("Checking is off in Notepad.", "disabled_apps", "notepad.exe")
+    assert AI_TEXT not in link_texts(popup) and FIND_MORE_TEXT not in link_texts(popup)
+    assert "Asking the AI..." not in visible_label_texts(popup)
+    popup.hide()
+    popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, ai_available=True)
+    assert FIND_MORE_TEXT not in link_texts(popup) and "Asking the AI..." not in visible_label_texts(popup)
+
+
+def test_popup_shown_signal_fires_when_it_opens(qtbot, popup):
+    with qtbot.waitSignal(popup.shown):
+        popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS)
+
+
+def test_ai_rows_offer_no_rule_switch(popup):
+    popup.show_issues((AI_MATCH,), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, text="I has a cat.")
+    assert "AI suggestion" in visible_label_texts(popup)
+    assert DISABLE_RULE_TEXT not in link_texts(popup)
+
+
+def test_ai_text_is_plain(popup):
+    marked = replace(AI_MATCH, message="<b>x</b>")
+    popup.show_issues((marked,), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, text="I has a cat.")
+    labels = [label for label in popup.findChildren(QLabel) if label.text() == "<b>x</b>"]
+    assert labels and all(label.textFormat() == Qt.TextFormat.PlainText for label in labels)

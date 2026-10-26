@@ -50,10 +50,49 @@ immutable `Config` dataclass: every change creates a new object, saves it, then
 | Desktop integration | `integration.py`, `theme.py`, `autostart.py`, `hotkeys.py` |
 | Diagnostics | `diagnostics.py`, `probe.py` |
 | Usage counts | `usage.py` (ledger, Windows lock, reporting points), `usage_client.py` (vendored from plugin-stats, pinned in `scripts/client_manifest.json`; never edit) |
-| AI assist (Claude API, on request only) | `ai_prices.py` (models and prices), `ai_usage.py` (`ai_usage.jsonl` ledger, monthly totals, cap check), `ai_keys.py` (API key in Windows Credential Manager), `ai_client.py` (one structured-output request through the `anthropic` SDK, error kinds), `ai_service.py` (one request at a time, refusals, records cost; HTTP on the Qt thread pool), `ai_settings_page.py` + `ai_setup.py` (Settings, AI), `sentences.py` (the sentence at an offset), `ai_jobs.py` (each job's prompt, schema and answer cleaning), `ai_diff.py` (changed words in bold), `rephrase.py` (one rephrase at a time in the card; drops stale answers) |
+| AI assist (on request only) | `ai_prices.py` (models and prices), `ai_usage.py` (`ai_usage.jsonl` ledger, monthly totals, cap check), `ai_keys.py` (API key in Windows Credential Manager), `ai_client.py` (one structured-output request through the `anthropic` SDK, error kinds), `ai_service.py` (one request at a time, refusals, records cost; HTTP on the Qt thread pool), `ai_settings_page.py` + `ai_setup.py` (Settings, AI), `sentences.py` (the sentence at an offset), `ai_jobs.py` (each job's prompt, schema and answer cleaning), `ai_diff.py` (changed words in bold), `rephrase.py` (one rephrase at a time in the card; drops stale answers), `ai_find.py` (Find more issues: one request at a time, status in the popup), `ai_merge.py` (AI findings merged with LanguageTool's, moved across Proofline's own fixes) |
 | Update check | `update_check.py` (GitHub latest release, cached in `version_check.json`, background refresh) |
 | Rename migration | `legacy.py` (moves settings and removes registry entries from the LanguageTool Desktop name) |
 | Packaging | `packaging/Proofline.spec`, `packaging/build.ps1`, `packaging/make_icon.py` |
+
+## AI providers
+
+Settings › AI sends text to one provider at a time (Claude, OpenAI, Gemini, Grok, Mistral,
+DeepSeek, Groq, OpenRouter, Ollama, or an OpenAI-compatible server by address). Each provider has
+an entry in `ai_providers.PROVIDERS`: its wire format (`anthropic`, `openai`, `gemini` or
+`ollama`), fixed base address (cloud providers only), key rule, JSON mode, timeout and whether it
+is priced. The modules:
+
+| Module | What it does |
+|---|---|
+| `ai_providers.py` | The ten providers, their key targets (`Proofline/<id>-api-key`), timeouts and address checks (`normalize_ai_address`). Imports nothing from Proofline. |
+| `ai_types.py` | `AiRequest`, `AiResult`, `AiError` (kind and safe message) and the `AiBackend` protocol: `send(request, model)`. |
+| `ai_backends.py` | `make_backend(spec, key, base_url)`: picks the backend class from the provider's wire format. |
+| `ai_client.py` | `AnthropicBackend`, the Claude backend, through the `anthropic` SDK. Fixed address; proxy variables ignored. |
+| `ai_openai_compat.py` | `OpenAICompatBackend`: chat completions for OpenAI, Grok, Mistral, DeepSeek, Groq, OpenRouter and the Other server. Strict JSON schema, or JSON object for DeepSeek and for an Other server that refuses schemas. |
+| `ai_gemini.py` | `GeminiBackend`: native `generateContent` with a JSON response schema. The key goes only in the `x-goog-api-key` header. |
+| `ai_ollama.py` | `OllamaBackend`: native `/api/chat` with the schema as the output format, thinking off, context window set. |
+| `ai_http.py` | The HTTP client (`httpx2`; no redirects, proxy variables ignored), JSON in and out, and the error kinds. Messages never include a URL, header, body or key, except the redacted Ollama address in its connection message. |
+| `ai_answers.py` | Checks an answer: one JSON object matching the request's schema, using only the keywords every provider accepts. Anything else is `bad_response`. |
+| `ai_model_list.py` | Live model lists: OpenRouter (structured-output models, with prices), Ollama (installed models), and the Other server's `/models`. |
+| `ai_page_text.py` | Wording for the Settings AI page: provider names, "(untested)", key and address text, privacy and usage lines. Pure functions, no Qt. |
+
+Existing modules are unchanged in role: `ai_service.py` checks and records every request,
+`ai_usage.py` keeps the ledger, `ai_keys.py` the Credential Manager entries and `ai_setup.py` the
+settings page actions.
+
+A request flows like this:
+
+1. `ai_settings_page.py` or a job (`rephrase.py`, `ai_find.py`) asks `AiService` (on the GUI thread)
+   for a request. `AiService` refuses it unless AI is on, the provider's key is saved (when it
+   needs one), the text is short enough, no other request runs, and the monthly limit allows it.
+2. `AiService` calls `make_backend(provider(pid), key, address)` and runs `backend.send(request, model)`
+   on the Qt thread pool, with the provider's timeout.
+3. The backend builds the provider's request and posts it through `ai_http`. The answer is checked by
+   `ai_answers.parse_answer` (the Claude backend gets structured output from the SDK).
+4. The result (`AiResult`, or `AiError` with a safe message) returns to `AiService`, which records
+   the token counts and cost (or none, for Ollama and Other) in `ai_usage.jsonl` and passes the
+   answer to the job, which cleans it before it is shown.
 
 ## Key decisions
 

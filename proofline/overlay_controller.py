@@ -7,6 +7,8 @@ from collections.abc import Callable, Sequence
 
 from PyQt6.QtCore import QObject, QPoint, QRect, pyqtSignal
 
+from proofline.ai_jobs import is_ai_match
+from proofline.ai_merge import PendingEdit, merge_with_ai, moved_matches
 from proofline.app_names import display_name
 from proofline.badge import BADGE_SIZE, BadgeState, BadgeWidget
 from proofline.config import Config
@@ -60,6 +62,7 @@ class OverlayController(QObject):
     undo_requested = pyqtSignal(str, str)  # config field, value to remove again
     underline_target_changed = pyqtSignal(object)  # UnderlineTarget | None, for the monitor
     rephrase_requested = pyqtSignal(object)  # RephraseTarget, from the card's Rephrase link
+    find_more_requested = pyqtSignal(object)  # FieldSnapshot, from the popup's Find more issues
 
     def __init__(
         self,
@@ -89,6 +92,9 @@ class OverlayController(QObject):
         self._server_matches: tuple[Match, ...] = ()  # as returned by the server
         self._matches: tuple[Match, ...] = ()  # after dictionary/ignore/rule filters
         self._ignored: set[tuple[str, str]] = set()  # 'Ignore' clicks, this session only
+        self._ai_key: tuple[tuple[int, ...], str] | None = None  # (field_id, text) the AI findings belong to
+        self._ai_matches: tuple[Match, ...] = ()
+        self._pending_edit: PendingEdit | None = None  # the last correction sent, for moving AI findings
         self._state = BadgeState.CHECKING
         self._message = ""
 
@@ -106,10 +112,47 @@ class OverlayController(QObject):
         self._card.add_word_requested.connect(self._on_add_word)
         self._card.all_issues_requested.connect(self._show_popup)
         self._card.rephrase_requested.connect(self._on_rephrase_link)
+        self._popup.find_more_requested.connect(self._on_find_more)
 
     @property
     def card(self) -> IssueCard:
         return self._card
+
+    @property
+    def popup(self) -> IssuesPopup:
+        return self._popup
+
+    def set_ai_matches(self, snapshot: FieldSnapshot, matches: tuple[Match, ...]) -> None:
+        """The AI's findings for snapshot's exact text; they replace earlier ones and show with LanguageTool's."""
+        current = self._snapshot
+        if current is None or (current.field_id, current.text) != (snapshot.field_id, snapshot.text):
+            return
+        self._ai_key = (snapshot.field_id, snapshot.text)
+        self._ai_matches = tuple(matches)
+        if self._state in (BadgeState.ISSUES, BadgeState.CLEAN):  # otherwise on_checked merges them
+            self._apply_filters()
+
+    def _on_find_more(self) -> None:
+        if self._snapshot is not None:
+            self.find_more_requested.emit(self._snapshot)
+
+    def _current_ai_matches(self) -> tuple[Match, ...]:
+        snapshot = self._snapshot
+        if snapshot is None or self._ai_key != (snapshot.field_id, snapshot.text):
+            return ()
+        return self._ai_matches
+
+    def _carry_ai_matches(self, snapshot: FieldSnapshot) -> None:
+        """The text changed: move AI findings across Proofline's own fix, otherwise drop them."""
+        edit, self._pending_edit = self._pending_edit, None  # used once
+        if self._ai_key is None:
+            return
+        if (edit is not None and edit.field_id == snapshot.field_id and snapshot.text == edit.new_text
+                and self._ai_key == (edit.field_id, edit.old_text)):
+            self._ai_matches = moved_matches(self._ai_matches, edit, snapshot.text)
+            self._ai_key = (snapshot.field_id, snapshot.text)
+        else:
+            self._ai_key, self._ai_matches = None, ()
 
     def hold_card(self, held: bool) -> None:
         """While held, nothing here hides or replaces the card; releasing it refreshes."""
@@ -132,6 +175,8 @@ class OverlayController(QObject):
             self._release_popup(NO_FIELD_STATUS)
             return
         if previous is None or (previous.field_id, previous.text) != (snapshot.field_id, snapshot.text):
+            if self._ai_key != (snapshot.field_id, snapshot.text):
+                self._carry_ai_matches(snapshot)
             self._server_matches = ()
             self._matches = ()
             self._set_state(BadgeState.CHECKING)
@@ -170,7 +215,9 @@ class OverlayController(QObject):
         config = self._config_provider()
         kept = filter_matches(self._server_matches, config.personal_dictionary, self._ignored)
         disabled = set(config.disabled_rules)
-        self._matches = tuple(m for m in kept if m.rule_id not in disabled)
+        languagetool = tuple(m for m in kept if m.rule_id not in disabled)
+        ai = filter_matches(self._current_ai_matches(), (), self._ignored)  # disabled rules never hide AI
+        self._matches = merge_with_ai(languagetool, ai, config.personal_dictionary)
         self._set_state(BadgeState.ISSUES if self._matches else BadgeState.CLEAN)
         self.refresh()
         if self._popup.isVisible() and not self._popup.is_notice_only:
@@ -226,7 +273,10 @@ class OverlayController(QObject):
         self._measured = underlines
         screens = self._screens_provider()
         words = [to_logical_rect(rect, screens) for rects in underlines.rects for rect in rects]
-        self._underlines.show_underlines(to_logical_rect(underlines.field_rect, screens), words)
+        # One flag per rectangle: a span that wraps onto two lines has two.
+        ai_flags = [is_ai_match(match) for match, rects in zip(underlined_matches(self._matches), underlines.rects)
+                    for _ in rects]
+        self._underlines.show_underlines(to_logical_rect(underlines.field_rect, screens), words, ai_flags)
         if self._popup.isVisible():
             self._popup.raise_()  # the lines must not draw over the list of issues
         self._badge.raise_()
@@ -318,6 +368,8 @@ class OverlayController(QObject):
         self._popup.show_issues(
             self._matches, self._app_name_provider(snapshot), self._badge.geometry(), bounds,
             text=snapshot.text, accent=self._config_provider().tray_color,
+            # No AI while the server is unreachable: findings would wait for a recheck that never comes.
+            ai_available=self._ai_available() and self._state is not BadgeState.ERROR,
         )
 
     def _on_replacement_chosen(self, match: Match, replacement: str) -> None:
@@ -327,6 +379,7 @@ class OverlayController(QObject):
 
     def request_replace(self, request: ReplaceRequest) -> None:
         """Hand a correction to the monitor's checked replace path, as the card and popup do."""
+        self._pending_edit = PendingEdit.from_request(request)
         self._release_popup(CHECKING_STATUS)
         self._set_state(BadgeState.CHECKING)
         self.refresh()
@@ -372,6 +425,7 @@ class OverlayController(QObject):
         self._snapshot = None
         self._server_matches = ()
         self._matches = ()
+        self._ai_key, self._ai_matches = None, ()
         self._set_state(BadgeState.CHECKING)
         self._sync_underlines()
         self._badge.hide()

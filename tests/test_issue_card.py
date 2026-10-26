@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from card_helpers import (
     click_link,
@@ -6,10 +8,11 @@ from card_helpers import (
     option_html,
     visible_label_texts,
 )
-from factories import snapshot
+from factories import issue_match, snapshot
 from PyQt6.QtCore import QRect
 
-from proofline.badge import BadgeWidget
+from proofline.ai_jobs import is_ai_match
+from proofline.badge import BadgeState, BadgeWidget
 from proofline.config import Config
 from proofline.issue_card import (
     CANCEL_TEXT,
@@ -24,12 +27,13 @@ from proofline.issue_card import (
 )
 from proofline.lt_client import Match
 from proofline.overlay_controller import OverlayController
-from proofline.overlay_widgets import IssuesPopup
+from proofline.overlay_widgets import AI_TEXT, IssuesPopup
 from proofline.rephrase import RephraseTarget
+from proofline.replace_request import ReplaceRequest
 from proofline.screen_coords import ScreenInfo
 from proofline.text_snapshot import ScreenRect
 from proofline.underline_overlay import UnderlineOverlay
-from proofline.underlines import Underlines, span_at
+from proofline.underlines import Underlines, span_at, target_for
 
 SCREENS = (ScreenInfo(QRect(0, 0, 1920, 1080), QRect(0, 0, 1920, 1040), 1.0),)
 FIELD = ScreenRect(0, 0, 400, 200)
@@ -45,7 +49,7 @@ def caret_at(x):
 
 
 def measured(snap):
-    return Underlines(snap.field_id, snap.text, FIELD, ((ARE_RECT,), (TEST_RECT,)))
+    return Underlines(snap.field_id, snap.text, FIELD, ((ARE_RECT,), (TEST_RECT,)), target_for(snap, (TEST, ARE)).spans)
 
 
 @pytest.mark.parametrize(("x", "expected"), [(50, 0), (65, 0), (79, None), (80, None), (130, 1), (10, None)])
@@ -68,12 +72,13 @@ def test_card_sits_below_the_word_or_above_it_at_the_screen_bottom():
 
 
 class Harness:
-    def __init__(self, qtbot):
+    def __init__(self, qtbot, config=None, ai_available=lambda: True):
         self.badge, self.popup, self.lines, self.card = BadgeWidget(), IssuesPopup(), UnderlineOverlay(), IssueCard()
         for widget in (self.badge, self.popup, self.lines, self.card):
             qtbot.addWidget(widget)
-        self.controller = OverlayController(lambda: Config(), self.badge, self.popup, lambda: SCREENS,
-                                            underlines=self.lines, card=self.card, ai_available=lambda: True)
+        self.config = config or Config()
+        self.controller = OverlayController(lambda: self.config, self.badge, self.popup, lambda: SCREENS,
+                                            underlines=self.lines, card=self.card, ai_available=ai_available)
         self.requests = []
         self.rephrase: list[RephraseTarget] = []
         self.controller.rephrase_requested.connect(self.rephrase.append)
@@ -271,7 +276,7 @@ def test_target_without_a_caret_opens_at_the_field_corner(harness):
 
 def test_choosing_a_wording_goes_through_the_checked_replace(harness):
     harness.move_caret(60)
-    request = object()
+    request = ReplaceRequest(harness.snap.field_id, "", harness.snap.text, 5, 3, "are", "is")
     harness.controller.request_replace(request)
     assert harness.requests == [request]
 
@@ -297,3 +302,145 @@ def test_no_link_is_squeezed_when_ai_adds_rephrase(card):
 
 def test_rephrase_says_it_uses_ai():
     assert REPHRASE_TEXT == "AI Rephrase"
+
+
+def test_card_text_is_plain(card):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QLabel
+
+    card.show_for(replace(ARE, message="<b>x</b>", replacements=()), WORD, BOUNDS)
+    labels = [label for label in card.findChildren(QLabel) if label.text() == "<b>x</b>"]
+    assert labels and all(label.textFormat() == Qt.TextFormat.PlainText for label in labels)
+
+
+def _ai_matches(harness):
+    return [m for m in harness.controller._matches if is_ai_match(m)]
+
+
+def test_ai_matches_join_languagetool_matches(harness):
+    ai_this, ai_test = issue_match("This", offset=0), issue_match("test", offset=11)
+    harness.controller.set_ai_matches(harness.snap, (ai_this, ai_test))
+    assert _ai_matches(harness) == [ai_this]  # "test" overlaps LanguageTool's TEST
+    assert TEST in harness.controller._matches and ARE in harness.controller._matches
+
+
+def test_recheck_keeps_ai_matches(harness):
+    ai_this = issue_match("This", offset=0)
+    harness.controller.set_ai_matches(harness.snap, (ai_this,))
+    harness.controller.on_checked(harness.snap, (TEST,))
+    assert _ai_matches(harness) == [ai_this]
+
+
+def test_ai_matches_belong_to_their_field(harness):
+    harness.controller.set_ai_matches(snapshot(field_id=(99,)), (issue_match("This", offset=0),))
+    assert _ai_matches(harness) == []
+
+
+def test_ai_matches_clear_when_text_changes_but_move_with_our_own_fix(harness):
+    ai_this = issue_match("This", offset=0)
+    ai_test = issue_match("test", offset=11)
+    harness.controller.set_ai_matches(harness.snap, (ai_this, ai_test))
+    harness.controller.request_replace(ReplaceRequest(harness.snap.field_id, "", harness.snap.text, 5, 3, "are", "is"))
+    moved = snapshot(text="This is a test.")
+    harness.controller.on_field_changed(moved)
+    harness.controller.on_checked(moved, ())
+    ai_now = _ai_matches(harness)
+    assert [(m.error_text, m.offset) for m in ai_now] == [("This", 0), ("test", 10)]  # after the edit: shifted by -1
+    harness.controller.on_field_changed(snapshot(text="Typed something else."))
+    assert _ai_matches(harness) == []
+
+
+def test_a_replace_that_did_not_happen_clears_ai_matches(harness):
+    ai_this = issue_match("This", offset=0)
+    harness.controller.set_ai_matches(harness.snap, (ai_this,))
+    harness.controller.request_replace(ReplaceRequest(harness.snap.field_id, "", harness.snap.text, 5, 3, "are", "is"))
+    typed = snapshot(text="This was a test.")  # not the expected result; "This" still matches its slice
+    harness.controller.on_field_changed(typed)
+    harness.controller.on_checked(typed, ())
+    assert _ai_matches(harness) == []
+
+
+def test_ignore_and_disabled_rules_with_ai_matches(qtbot):
+    h = Harness(qtbot, config=Config(disabled_rules=("AI_SUGGESTION",)))
+    ai_this = issue_match("This", offset=0)
+    h.controller.set_ai_matches(h.snap, (ai_this,))
+    assert ai_this in h.controller._matches  # disabled rules never hide AI findings
+    h.controller._on_ignore(ai_this)
+    assert ai_this not in h.controller._matches
+
+
+def test_dictionary_words_are_not_ai_findings(qtbot):
+    h = Harness(qtbot, config=Config(personal_dictionary=("this",)))
+    h.controller.set_ai_matches(h.snap, (issue_match("This", offset=0),))
+    assert _ai_matches(h) == []
+
+
+def test_badge_goes_clean_to_issues_and_back(harness):
+    harness.controller.on_checked(harness.snap, ())
+    assert harness.controller._state is BadgeState.CLEAN
+    ai_this = issue_match("This", offset=0)
+    harness.controller.set_ai_matches(harness.snap, (ai_this,))
+    assert harness.controller._state is BadgeState.ISSUES and harness.controller._matches == (ai_this,)
+    harness.controller._on_ignore(ai_this)
+    assert harness.controller._state is BadgeState.CLEAN
+
+
+def test_answer_during_a_check_keeps_the_spinner(harness):
+    typed = snapshot(text="This are a test now.")
+    harness.controller.on_field_changed(typed)
+    harness.controller.set_ai_matches(typed, (issue_match("This", offset=0),))
+    assert harness.controller._state is BadgeState.CHECKING
+    harness.controller.on_checked(typed, ())
+    assert len(_ai_matches(harness)) == 1
+
+
+def test_find_more_without_a_field_emits_nothing(qtbot, harness):
+    seen = []
+    harness.controller.find_more_requested.connect(seen.append)
+    harness.popup.find_more_requested.emit()
+    assert seen == [harness.snap]
+    harness.controller.on_field_changed(None)
+    harness.popup.find_more_requested.emit()
+    assert seen == [harness.snap]
+
+
+def test_stale_measurement_is_not_used(harness):
+    old = measured(harness.snap)  # measured for LanguageTool's two spans
+    harness.controller.set_ai_matches(harness.snap, (issue_match("This", offset=0),))
+    harness.controller.on_underlines(old)
+    harness.move_caret(60)
+    assert harness.card.match is None and harness.controller._measured is None
+
+
+def test_wrapped_span_keeps_its_colour(harness):
+    harness.controller.set_ai_matches(harness.snap, (issue_match("This", offset=0),))
+    spans = harness.controller._target.spans  # This, are, test
+    wrapped = (ScreenRect(0, 10, 20, 30), ScreenRect(0, 40, 10, 60))
+    harness.controller.on_underlines(Underlines(harness.snap.field_id, harness.snap.text, FIELD,
+                                                (wrapped, (ARE_RECT,), (TEST_RECT,)), spans))
+    assert harness.lines.ai_flags == (True, True, False, False)
+
+
+def test_popup_offers_ai_on_a_clean_field(harness):
+    harness.controller.on_checked(harness.snap, ())
+    harness.controller._show_popup()
+    assert AI_TEXT in link_texts(harness.popup)
+
+
+def test_card_tooltip_shows_quotes_and_ampersands_as_typed(card):
+    from PyQt6.QtCore import Qt as QtNs
+    from PyQt6.QtGui import QTextDocument
+    from PyQt6.QtWidgets import QPushButton
+
+    card.show_for(replace(ARE, message='Don\'t use "their" & co.'), WORD, BOUNDS)
+    tip = card.findChildren(QPushButton, "cardFirstFix")[0].toolTip()
+    assert QtNs.mightBeRichText(tip)  # so Qt decodes the escaped characters
+    document = QTextDocument()
+    document.setHtml(tip)
+    assert document.toPlainText() == 'Don\'t use "their" & co.'
+
+
+def test_popup_hides_ai_while_the_server_is_unreachable(harness):
+    harness.controller.on_check_failed("Could not reach the server.")
+    harness.controller._show_popup()
+    assert AI_TEXT not in link_texts(harness.popup)

@@ -2,7 +2,12 @@ import logging
 
 import pytest
 
-from proofline.logging_setup import LOG_FILE_NAME, LOG_LEVEL_ENV, setup_logging
+from proofline.logging_setup import (
+    LOG_FILE_NAME,
+    LOG_LEVEL_ENV,
+    set_debug_mode,
+    setup_logging,
+)
 from proofline.workers import run_in_background
 
 
@@ -70,3 +75,30 @@ def test_ai_http_libraries_do_not_log_request_bodies(tmp_path, logging_handlers,
     logging_handlers()
     logging.getLogger(name).debug("json_data: secret typed text")
     assert "secret typed text" not in (tmp_path / LOG_FILE_NAME).read_text(encoding="utf-8")
+
+
+def test_http_loggers_stay_quiet_after_setup(tmp_path, logging_handlers):
+    logging_handlers()
+    set_debug_mode(True)
+    try:
+        for name in ("httpx2", "httpcore2", "anthropic"):
+            assert logging.getLogger(name).getEffectiveLevel() >= logging.WARNING
+    finally:
+        set_debug_mode(False)
+
+
+def test_failed_task_logs_only_the_error_kind_not_its_text(qtbot, caplog):
+    """An AiError's text can carry a provider's own words, so the debug log names only its type and kind."""
+    from proofline.ai_types import AiError
+
+    caplog.set_level(logging.DEBUG, logger="proofline.workers")
+
+    def boom():
+        raise AiError("auth", "SECRET-PROVIDER-TEXT")
+
+    errors = []
+    run_in_background(boom, pytest.fail, errors.append)
+    qtbot.waitUntil(lambda: len(errors) == 1)
+    messages = " ".join(record.getMessage() for record in caplog.records)
+    assert "auth" in messages and "AiError" in messages
+    assert "SECRET-PROVIDER-TEXT" not in messages

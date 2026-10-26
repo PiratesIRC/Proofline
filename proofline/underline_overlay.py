@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QWidget
 from proofline.non_activating import make_non_activating
 
 UNDERLINE_COLOR = QColor(229, 40, 60)
+AI_UNDERLINE_COLOR = QColor(142, 68, 173)  # AI findings, apart from LanguageTool's
 LINE_WIDTH = 1.6
 WAVE_PERIOD = 6.0  # logical px per full wave
 WAVE_AMPLITUDE = 1.5
@@ -34,15 +35,25 @@ class UnderlineOverlay(QWidget):
         super().__init__()
         make_non_activating(self, click_through=True)
         self._rects: tuple[QRect, ...] = ()
+        self._ai_flags: tuple[bool, ...] = ()
 
     @property
     def rects(self) -> tuple[QRect, ...]:
         """The word rectangles drawn, relative to the window."""
         return self._rects
 
-    def show_underlines(self, field: QRect, words: Sequence[QRect]) -> None:
-        """Underline words (logical screen coordinates) inside the field's rectangle."""
+    @property
+    def ai_flags(self) -> tuple[bool, ...]:
+        """Per word rectangle: drawn in the AI colour."""
+        return self._ai_flags
+
+    def show_underlines(self, field: QRect, words: Sequence[QRect], ai_flags: Sequence[bool] = ()) -> None:
+        """Underline words (logical screen coordinates) inside the field's rectangle.
+
+        ai_flags has one entry per word rectangle; a True one is drawn in AI_UNDERLINE_COLOR.
+        """
         self._rects = tuple(word.translated(-field.topLeft()) for word in words)
+        self._ai_flags = tuple(ai_flags)
         self.setGeometry(field)
         self.update()
         if not self.isVisible():
@@ -51,6 +62,7 @@ class UnderlineOverlay(QWidget):
     def paintEvent(self, event: QPaintEvent | None) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(UNDERLINE_COLOR, LINE_WIDTH))
-        for rect in self._rects:
+        for index, rect in enumerate(self._rects):
+            ai = index < len(self._ai_flags) and self._ai_flags[index]
+            painter.setPen(QPen(AI_UNDERLINE_COLOR if ai else UNDERLINE_COLOR, LINE_WIDTH))
             painter.drawPath(wave_path(rect))

@@ -2,12 +2,13 @@
 
 It offers the first suggestions, Ignore, Add to dictionary for spelling, Rephrase (when AI is
 available), and a link to the full issues popup. While a rephrase runs it shows the sentence,
-"Asking Claude...", then the rewordings or a one-line message. Like the popup it never takes
+"Asking the AI...", then the rewordings or a one-line message. Like the popup it never takes
 focus, so the caret stays in the field.
 """
 
 from __future__ import annotations
 
+import html
 from collections.abc import Callable, Sequence
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
@@ -48,7 +49,7 @@ SENTENCE_PREVIEW_CHARS = 80
 IGNORE_TEXT = "Ignore"
 ALL_ISSUES_TEXT = "All issues…"
 REPHRASE_TEXT = "AI Rephrase"
-WAITING_TEXT = "Asking Claude..."
+WAITING_TEXT = "Asking the AI..."
 CANCEL_TEXT = "Cancel"
 RETRY_TEXT = "Retry"
 CLOSE_TEXT = "Close"
@@ -136,7 +137,7 @@ class IssueCard(QWidget):
         self._present()
 
     def show_waiting(self, sentence: str, anchor: QRect, bounds: QRect, accent: str) -> None:
-        """Start a rephrase: the sentence, "Asking Claude..." and Cancel, under anchor."""
+        """Start a rephrase: the sentence, "Asking the AI..." and Cancel, under anchor."""
         self._enter_rephrase(anchor, bounds, accent)
         self._sentence = sentence
         self._clear_card()
@@ -214,16 +215,19 @@ class IssueCard(QWidget):
         self._clear_card()
         title = QLabel(match.short_message or match.category or "Possible issue")
         title.setObjectName("cardTitle")
+        title.setTextFormat(Qt.TextFormat.PlainText)
         self._layout.addWidget(title)
         if not match.replacements:
             message = QLabel(match.message)
+            message.setTextFormat(Qt.TextFormat.PlainText)
             message.setWordWrap(True)
             self._layout.addWidget(message)
         for index, replacement in enumerate(match.replacements[:MAX_CARD_FIXES]):
             button = QPushButton(replacement_label(replacement))
             button.setObjectName("cardFirstFix" if index == 0 else "cardFix")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setToolTip(match.message)
+            # Rich text so the escaped quotes and ampersands display as typed (plain text would show &quot;).
+            button.setToolTip(f"<p>{html.escape(match.message)}</p>")
             button.clicked.connect(lambda _checked=False, r=replacement: self._choose(r))
             self._layout.addWidget(button)
         if self._ai_available:  # its own row: four links do not fit across the card

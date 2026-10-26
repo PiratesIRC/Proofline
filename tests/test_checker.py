@@ -37,7 +37,9 @@ def test_check_emits_matches_for_snapshot(qtbot):
     assert created == [("http://lan-server:8081/v2/check", "auto")]
 
 
-def test_failure_emits_message(qtbot):
+def test_failure_emits_message(qtbot, monkeypatch):
+    monkeypatch.setattr("proofline.checker.RETRY_DELAY_MS", 0)
+
     def fail(_):
         raise LanguageToolError("Could not connect")
 
@@ -85,3 +87,61 @@ def test_client_for_passes_rule_settings():
     assert data["disabledRules"] == "R1"
     assert data["disabledCategories"] == "STYLE"
     assert data["level"] == "picky"
+
+
+def counting_failures(failures):
+    """A client behaviour that fails `failures` times, then finds MATCH; calls counts every attempt."""
+    calls = []
+
+    def behaviour(text):
+        calls.append(text)
+        if len(calls) <= failures:
+            raise LanguageToolError("No response")
+        return (MATCH,)
+
+    return behaviour, calls
+
+
+def test_a_failure_is_retried_quietly_before_it_is_reported(qtbot, monkeypatch):
+    monkeypatch.setattr("proofline.checker.RETRY_DELAY_MS", 0)
+    behaviour, calls = counting_failures(2)
+    checker, _ = make_checker(behaviour)
+    failures = []
+    checker.failed.connect(failures.append)
+    with qtbot.waitSignal(checker.checked) as blocker:
+        checker.check(snapshot())
+    assert blocker.args[1] == (MATCH,)
+    assert len(calls) == 3
+    assert failures == []
+
+
+def test_failure_is_reported_once_after_three_attempts(qtbot, monkeypatch):
+    monkeypatch.setattr("proofline.checker.RETRY_DELAY_MS", 0)
+    behaviour, calls = counting_failures(99)
+    checker, _ = make_checker(behaviour)
+    failures = []
+    checker.failed.connect(failures.append)
+    with qtbot.waitSignal(checker.failed):
+        checker.check(snapshot())
+    qtbot.wait(100)
+    assert len(calls) == 3
+    assert failures == ["No response"]
+
+
+def test_a_newer_check_cancels_the_retries_of_an_older_one(qtbot, monkeypatch):
+    monkeypatch.setattr("proofline.checker.RETRY_DELAY_MS", 200)
+    attempts = []
+
+    def behaviour(text):
+        attempts.append(text)
+        if text == "first":
+            raise LanguageToolError("No response")
+        return (MATCH,)
+
+    checker, _ = make_checker(behaviour)
+    checker.check(snapshot(text="first"))
+    qtbot.waitUntil(lambda: attempts == ["first"])
+    with qtbot.waitSignal(checker.checked):
+        checker.check(snapshot(text="second"))
+    qtbot.wait(400)
+    assert attempts == ["first", "second"]

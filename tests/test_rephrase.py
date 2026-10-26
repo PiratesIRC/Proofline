@@ -1,4 +1,3 @@
-import threading
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -10,15 +9,15 @@ from card_helpers import (
     option_html,
     visible_label_texts,
 )
-from factories import snapshot
+from factories import GatedBackend, finish, release_backends, snapshot
 from PyQt6.QtCore import QRect
 
+from proofline import rephrase
 from proofline.ai_client import (
     AUTH_MESSAGE,
     REFUSAL_MESSAGE,
     TIMEOUT_MESSAGE,
     AiError,
-    AiResult,
 )
 from proofline.ai_service import OFF_MESSAGE, AiService
 from proofline.config import Config
@@ -36,39 +35,23 @@ from proofline.text_snapshot import ScreenRect
 TEXT = "Hi. Me and him goes. Bye."  # sentence at 4..20
 
 
-class GatedBackend:
-    """Answers in order, each only after gate.set(), so 'while it runs' is deterministic."""
-
-    def __init__(self, *answers):
-        self.answers, self.sent, self.gate = list(answers), [], threading.Event()
-
-    def send(self, request, model):
-        self.sent.append(request)
-        assert self.gate.wait(5)
-        answer = self.answers.pop(0)
-        if isinstance(answer, Exception):
-            raise answer
-        return AiResult(answer, 10, 5)
-
-
 @pytest.fixture
 def make(qtbot, tmp_path):
+    backends = []
+
     def build(*answers, config=None, key="sk-ant-x"):
         cfg = {"value": config or Config(ai_enabled=True)}
         backend, card, held, replaced = GatedBackend(*answers), IssueCard(), [], []
+        backends.append(backend)
         qtbot.addWidget(card)
-        service = AiService(lambda: cfg["value"], lambda k: backend, lambda: key, tmp_path / "ai_usage.jsonl")
+        service = AiService(lambda: cfg["value"], lambda spec, k, address: backend, lambda pid: key, tmp_path / "ai_usage.jsonl")
         rephraser = Rephraser(service, card, held.append, replaced.append)
         snap = snapshot(text=TEXT)
         target = RephraseTarget(snap, 4, 20, QRect(50, 10, 30, 20), QRect(0, 0, 1920, 1040), "#2e7d32")
         return SimpleNamespace(backend=backend, card=card, held=held, replaced=replaced, service=service,
                                rephraser=rephraser, snap=snap, target=target, cfg=cfg)
-    return build
-
-
-def finish(qtbot, r, signal_name="finished"):
-    with qtbot.waitSignal(getattr(r.service, signal_name)):
-        r.backend.gate.set()
+    yield build
+    release_backends(backends)
 
 
 def test_start_shows_waiting_then_options(qtbot, make):
@@ -229,3 +212,8 @@ def test_start_and_refusal_are_logged_without_the_text(make, caplog):
     text = caplog.text
     assert "Rephrase requested (16 characters)" in text and "AI request refused (rephrase, off)" in text
     assert "Me and him" not in text
+
+
+def test_credit_is_not_retried():
+    """Out of credit will not clear by retrying, so the card must not offer Retry for it."""
+    assert "credit" not in rephrase.RETRY_KINDS

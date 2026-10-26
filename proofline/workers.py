@@ -8,10 +8,18 @@ from typing import Any
 
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal
 
+from proofline.ai_types import AiError
+
 log = logging.getLogger(__name__)
 
 # Keeps tasks alive until their result has been delivered.
 _active_tasks: set[_Task] = set()
+
+
+def _describe(exc: Exception) -> str:
+    """The exception's type, and an AiError's kind. Never its text: a provider's own words can carry a URL or a key."""
+    kind = exc.kind if isinstance(exc, AiError) else None
+    return type(exc).__name__ if kind is None else f"{type(exc).__name__}, {kind}"
 
 
 class _Signals(QObject):
@@ -30,7 +38,7 @@ class _Task(QRunnable):
         try:
             result = self._fn()
         except Exception as exc:  # noqa: BLE001 - any failure is reported via on_error
-            log.debug("Background task failed: %s", exc)
+            log.debug("Background task failed (%s)", _describe(exc))
             self.signals.failed.emit(exc)
             return
         self.signals.succeeded.emit(result)

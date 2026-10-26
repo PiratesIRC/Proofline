@@ -17,7 +17,14 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
-from proofline.ai_prices import DEFAULT_MODEL, MODEL_IDS
+from proofline.ai_prices import DEFAULT_MODEL, default_model
+from proofline.ai_providers import (
+    DEFAULT_OLLAMA_URL,
+    DEFAULT_PROVIDER,
+    PROVIDER_IDS,
+    is_valid_model_name,
+    normalize_ai_address,
+)
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +103,9 @@ DEFAULT_HOTKEY_FIX_FIRST = "ctrl+alt+j"
 BOOL_FIELDS = ("enabled", "debug_mode", "badge_always_visible", "picky", "start_with_windows", "check_for_updates",
                "share_usage_counts", "welcome_shown", "flag_hidden_characters", "show_underlines", "ai_enabled")
 AI_CAP_CENTS_RANGE = (10, 10_000)  # $0.10 to $100 a month
+AI_MODEL_SEPARATOR = "="  # ai_models entries look like "groq=openai/gpt-oss-20b"
+OLLAMA_ID = "ollama"
+OTHER_ID = "other"
 LIST_FIELDS = (
     "disabled_apps",
     "disabled_windows",
@@ -106,11 +116,13 @@ LIST_FIELDS = (
     "shown_hints",
     "always_check_apps",
     "custom_fields",
+    "ai_models",
 )
 FIELD_SIGNATURE_SEPARATOR = "|"
 FIELD_SIGNATURE_PARTS = 3
 ANY_CLASS = "*"
 HOTKEY_FIELDS = ("hotkey_toggle", "hotkey_check_now", "hotkey_fix_first", "hotkey_ai_rephrase")
+URL_FIELDS = ("server_url", "ai_ollama_url", "ai_other_url", "ai_other_key_address")  # redacted in repr
 
 # Recommended exclusions: places where checking is a security risk or just noise.
 # They are the defaults for new installs and can be re-added from Settings.
@@ -211,8 +223,13 @@ class Config:
     disabled_categories: tuple[str, ...] = ()
     picky: bool = False
     flag_hidden_characters: bool = True  # invisible characters and unusual spaces (hidden_chars)
-    ai_enabled: bool = False  # Claude API suggestions, sent only when asked; the key is in Credential Manager
-    ai_model: str = DEFAULT_MODEL
+    ai_enabled: bool = False  # AI provider suggestions, sent only when asked; the key is in Credential Manager
+    ai_provider: str = DEFAULT_PROVIDER  # which service receives AI requests (ai_providers.PROVIDER_IDS)
+    ai_model: str = DEFAULT_MODEL  # Claude's model only; other providers use ai_models
+    ai_models: tuple[str, ...] = ()  # "<provider id>=<model name>" for each provider other than Claude
+    ai_ollama_url: str = DEFAULT_OLLAMA_URL
+    ai_other_url: str = ""  # the address of an OpenAI-compatible server; "" when none is set
+    ai_other_key_address: str = ""  # the address Other's saved key was saved for; the key is sent only there
     ai_monthly_cap_cents: int = 100  # AI requests stop once this month's recorded cost would pass it
     start_with_windows: bool = False
     hotkey_toggle: str = DEFAULT_HOTKEY_TOGGLE
@@ -233,10 +250,34 @@ class Config:
 
     def __repr__(self) -> str:
         values = ", ".join(
-            f"{f.name}={redact_url(self.server_url) if f.name == 'server_url' else getattr(self, f.name)!r}"
+            f"{f.name}={redact_url(getattr(self, f.name)) if f.name in URL_FIELDS else getattr(self, f.name)!r}"
             for f in fields(self)
         )
         return f"Config({values})"
+
+    def ai_model_for(self, pid: str) -> str:
+        """The model for provider pid: ai_model for Claude, else the user's pick, else that
+        provider's cheapest priced model ("" when it has none)."""
+        if pid == DEFAULT_PROVIDER:
+            return self.ai_model
+        chosen = dict(entry.partition(AI_MODEL_SEPARATOR)[::2] for entry in self.ai_models)
+        return chosen.get(pid, default_model(pid))
+
+    def with_ai_model(self, pid: str, model: str) -> Config:
+        """A copy with pid's model set; each non-Claude provider keeps one ai_models entry."""
+        if pid == DEFAULT_PROVIDER:
+            return replace(self, ai_model=model)
+        kept = tuple(e for e in self.ai_models if e.partition(AI_MODEL_SEPARATOR)[0] != pid)
+        return replace(self, ai_models=(*kept, f"{pid}{AI_MODEL_SEPARATOR}{model}"))
+
+    def ai_address_for(self, pid: str) -> str:
+        """The address the user set for a local provider; "" for every other provider."""
+        return {OLLAMA_ID: self.ai_ollama_url, OTHER_ID: self.ai_other_url}.get(pid, "")
+
+    def other_key_applies(self) -> bool:
+        """True when Other's saved key was saved for the address Other uses now. A key saved for another
+        address (or for none) is never sent, even after a restart; saving the key again rebinds it."""
+        return self.ai_other_key_address == self.ai_other_url
 
     def is_custom_field(self, signature: str) -> bool:
         return custom_field_matches(signature, self.custom_fields)
@@ -318,15 +359,105 @@ def validate(config: Config) -> Config:
         language=config.language.strip(),
         **{name: _string_tuple(getattr(config, name), name) for name in LIST_FIELDS},
         **{name: getattr(config, name).strip().lower() for name in HOTKEY_FIELDS},
+        **_normalized_ai_addresses(config),
     )
 
 
 def _validate_ai(config: Config) -> None:
-    if config.ai_model not in MODEL_IDS:
-        raise ConfigError(f"AI model must be one of: {', '.join(MODEL_IDS)}.")
+    if config.ai_provider not in PROVIDER_IDS:
+        raise ConfigError(f"AI provider must be one of: {', '.join(PROVIDER_IDS)}.")
+    if not is_valid_model_name(config.ai_model):
+        raise ConfigError("AI model must be a name of letters, digits, and . _ : / - (up to 200 characters).")
+    if not isinstance(config.ai_models, (list, tuple)) or not all(_is_ai_model_entry(e) for e in config.ai_models):
+        raise ConfigError("Each AI model must look like provider=model-name, for a provider other than Claude.")
+    chosen = [entry.partition(AI_MODEL_SEPARATOR)[0] for entry in config.ai_models]
+    if len(set(chosen)) != len(chosen):
+        raise ConfigError("Each provider can have only one AI model.")
     low, high = AI_CAP_CENTS_RANGE
-    if type(config.ai_monthly_cap_cents) is not int or not low <= config.ai_monthly_cap_cents <= high:
+    if not _is_cap(config.ai_monthly_cap_cents):
         raise ConfigError(f"Monthly AI limit must be between {low} and {high} cents.")
+
+
+def _normalized_ai_addresses(config: Config) -> dict[str, str]:
+    return {
+        "ai_ollama_url": _ai_address(config.ai_ollama_url, "ai_ollama_url", optional=False),
+        "ai_other_url": _ai_address(config.ai_other_url, "ai_other_url", optional=True),
+        "ai_other_key_address": _ai_address(config.ai_other_key_address, "ai_other_key_address", optional=True),
+    }
+
+
+def _ai_address(value: object, name: str, optional: bool) -> str:
+    """A normalized address; the value itself is never echoed, as it may hold a password."""
+    if optional and value == "":
+        return ""
+    if not isinstance(value, str):
+        raise ConfigError(f"'{name}' must be text.")
+    try:
+        return normalize_ai_address(value)
+    except ValueError as exc:
+        raise ConfigError(f"'{name}' is not a valid address: {exc}") from exc
+
+
+def _is_ai_model_entry(entry: object) -> bool:
+    if not isinstance(entry, str):
+        return False
+    pid, sep, name = entry.partition(AI_MODEL_SEPARATOR)
+    return bool(sep) and pid in PROVIDER_IDS and pid != DEFAULT_PROVIDER and is_valid_model_name(name)
+
+
+def _is_cap(value: object) -> bool:
+    low, high = AI_CAP_CENTS_RANGE
+    return type(value) is int and low <= value <= high
+
+
+def _address_ok(value: object, optional: bool) -> bool:
+    try:
+        _ai_address(value, "", optional)
+    except ConfigError:
+        return False
+    return True
+
+
+# Each AI setting that load_config checks on its own; a bad value falls back to its default alone.
+AI_VALUE_CHECKS = {
+    "ai_enabled": lambda value: isinstance(value, bool),
+    "ai_provider": lambda value: value in PROVIDER_IDS,
+    "ai_model": is_valid_model_name,
+    "ai_monthly_cap_cents": _is_cap,
+    "ai_ollama_url": lambda value: _address_ok(value, optional=False),
+    "ai_other_url": lambda value: _address_ok(value, optional=True),
+    "ai_other_key_address": lambda value: _address_ok(value, optional=True),
+}
+
+
+def _sanitize_ai(raw: dict) -> dict:
+    """Replace each bad AI setting with its default and drop bad ai_models entries, so one bad
+    value does not reset the other settings. Logs one warning per bad value (never its content)."""
+    clean = dict(raw)
+    defaults = Config()
+    for name, is_ok in AI_VALUE_CHECKS.items():
+        if name in clean and not is_ok(clean[name]):
+            log.warning("AI setting %s is not valid; using its default", name)
+            clean[name] = getattr(defaults, name)
+    if "ai_models" in clean:
+        clean["ai_models"] = _kept_ai_models(clean["ai_models"])
+    return clean
+
+
+def _kept_ai_models(entries: object) -> list:
+    if not isinstance(entries, list):
+        log.warning("AI setting ai_models is not a list; dropping it")
+        return []
+    kept: list[str] = []
+    chosen: set[str] = set()
+    for entry in entries:
+        pid = entry.partition(AI_MODEL_SEPARATOR)[0] if isinstance(entry, str) else None
+        if _is_ai_model_entry(entry) and pid not in chosen:
+            kept.append(entry)
+            chosen.add(pid)
+    if len(kept) != len(entries):
+        log.warning("Dropped %d AI model entries that were invalid or repeated", len(entries) - len(kept))
+    return kept
 
 
 def _validate_paused_until(value: object) -> None:
@@ -364,10 +495,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         return Config()
 
     known = {f.name for f in fields(Config)}
-    if raw.get("ai_model", DEFAULT_MODEL) not in MODEL_IDS:
-        # A later release can drop a model from the price table; don't reset everything for it.
-        log.warning("AI model %r is no longer offered; using %s", raw["ai_model"], DEFAULT_MODEL)
-        raw["ai_model"] = DEFAULT_MODEL
+    raw = _sanitize_ai(raw)
     try:
         return validate(Config(**{k: v for k, v in raw.items() if k in known}))
     except ConfigError as exc:

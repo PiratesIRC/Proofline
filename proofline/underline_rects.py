@@ -43,4 +43,4 @@ def measure(target: UnderlineTarget) -> Underlines | None:
             continue
         rects = auto.TextRange(textRange=rng).GetBoundingRectangles()
         measured.append(clean_rects((ScreenRect(r.left, r.top, r.right, r.bottom) for r in rects), field))
-    return Underlines(target.field_id, target.text, field, tuple(measured))
+    return Underlines(target.field_id, target.text, field, tuple(measured), target.spans)
