@@ -48,8 +48,9 @@ a = Analysis(
     # uiautomation loads its helper DLLs from its own bin folder.
     binaries=collect_dynamic_libs("uiautomation", destdir="uiautomation/bin"),
     # comtypes wrappers for UIAutomationCore, generated in the venv, so the exe
-    # never has to generate them at runtime.
-    hiddenimports=collect_submodules("comtypes.gen"),
+    # never has to generate them at runtime. win32cred.CredRead imports
+    # win32timezone when called, too late for PyInstaller to see it.
+    hiddenimports=collect_submodules("comtypes.gen") + ["win32timezone"],
     excludes=["tkinter", "pytest", "pytestqt", "_pytest", "ruff"],
     noarchive=False,
 )

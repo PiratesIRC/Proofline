@@ -6,6 +6,7 @@ from proofline.ai_client import AiError, AiResult
 from proofline.ai_service import AiService
 from proofline.ai_settings_page import AiPage
 from proofline.ai_setup import (
+    KEY_READ_FAILED_MESSAGE,
     KEY_WORKS_MESSAGE,
     PASTE_FIRST_MESSAGE,
     AiSetup,
@@ -20,6 +21,7 @@ class Keys:
 
     def __init__(self, key=None):
         self.key = key
+        self.read_error = None  # raised by load(), like a key store that cannot be read
 
     def save(self, key):
         if not key.strip():
@@ -27,6 +29,8 @@ class Keys:
         self.key = key.strip()
 
     def load(self):
+        if self.read_error:
+            raise self.read_error
         return self.key
 
     def delete(self):
@@ -80,6 +84,28 @@ def test_saving_an_empty_key_says_so(make):
     page.save_button.click()
     assert keys.key is None
     assert page.key_status.text() == PASTE_FIRST_MESSAGE == "Paste a key first."
+
+
+def test_save_says_so_when_the_key_cannot_be_read_back(make):
+    # 0.3.0 packages lacked win32timezone: the key was stored but every read failed, silently.
+    page, keys, *_ = make()
+    keys.read_error = ModuleNotFoundError("No module named 'win32timezone'")
+    page.key_box.setText("sk-ant-new")
+    page.save_button.click()
+    assert keys.key == "sk-ant-new"
+    assert page.key_status.isVisible()
+    assert page.key_status.text() == KEY_READ_FAILED_MESSAGE
+    assert page.key_status.objectName() == "statusError"
+    assert not page.test_button.isEnabled()
+
+
+def test_showing_the_page_says_so_when_the_key_cannot_be_read(make):
+    page, keys, *_ = make(key="sk-ant-saved")
+    keys.read_error = OSError("Credential Manager unavailable")
+    page.hide()
+    page.show()
+    assert page.key_box.isVisible()
+    assert page.key_status.text() == KEY_READ_FAILED_MESSAGE
 
 
 def test_remove_deletes_the_key(make):

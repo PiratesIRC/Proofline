@@ -29,6 +29,7 @@ TEST_SCHEMA = {
 KEY_WORKS_MESSAGE = "The key works."
 PASTE_FIRST_MESSAGE = "Paste a key first."
 KEY_STORE_FAILED_MESSAGE = "Windows could not store the key."
+KEY_READ_FAILED_MESSAGE = "Proofline could not read the key from Windows Credential Manager. Details are in the log."
 
 
 def key_test_request() -> AiRequest:
@@ -56,15 +57,19 @@ class AiSetup(QObject):
         self.refresh()
 
     def refresh(self) -> None:
-        self.page.set_key_saved(self._has_key())
+        self._show_key_state()
         self.page.show_totals(self.service.month_totals())
 
-    def _has_key(self) -> bool:
+    def _show_key_state(self) -> None:
+        """Show whether a key is saved; say so when Credential Manager cannot be read."""
         try:
-            return self._load_key() is not None
-        except Exception:  # Credential Manager unavailable: treat as no key
+            saved = self._load_key() is not None
+        except Exception:  # treated as no key, but the page says why
             log.warning("Could not read the API key from Credential Manager", exc_info=True)
-            return False
+            self.page.set_key_saved(False)
+            self.page.show_key_result(False, KEY_READ_FAILED_MESSAGE)
+            return
+        self.page.set_key_saved(saved)
 
     def _on_save(self, key: str) -> None:
         try:
@@ -77,7 +82,7 @@ class AiSetup(QObject):
             self.page.show_key_result(False, KEY_STORE_FAILED_MESSAGE)
             return
         self.service.key_changed()
-        self.page.set_key_saved(self._has_key())
+        self._show_key_state()
 
     def _on_remove(self) -> None:
         try:
@@ -85,7 +90,7 @@ class AiSetup(QObject):
         except Exception:
             log.warning("Could not remove the API key", exc_info=True)
         self.service.key_changed()
-        self.page.set_key_saved(self._has_key())
+        self._show_key_state()
 
     def _on_finished(self, request: AiRequest, result: object) -> None:
         if request.job == TEST_JOB:

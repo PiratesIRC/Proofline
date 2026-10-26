@@ -2,6 +2,16 @@
 
 All notable changes to this project.
 
+## 0.3.1 (2026-10-26)
+
+### Fixed
+- The installed and portable 0.3.0 apps could save a Claude API key but never read it back:
+  the AI page kept showing the empty key box, Test stayed disabled, and AI features could not
+  be used. A module that reading from Windows Credential Manager needs was missing from the
+  package. A key you already saved in 0.3.0 is picked up after updating.
+- When Proofline cannot read the key from Credential Manager, the AI page now says so under the
+  key box. Before, the error went only to the log.
+
 ## 0.3.0 (2026-10-26)
 
 ### New
