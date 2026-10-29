@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 
 from PyQt6.QtCore import QObject, QPoint, QRect, pyqtSignal
 
-from proofline.ai_jobs import is_ai_match
+from proofline.ai_jobs import AI_CATEGORY, AI_RULE_ID, is_ai_match
 from proofline.ai_merge import PendingEdit, merge_with_ai, moved_matches
 from proofline.app_names import display_name
 from proofline.badge import BADGE_SIZE, BadgeState, BadgeWidget
@@ -15,7 +15,7 @@ from proofline.config import Config
 from proofline.dictionary import filter_matches, ignore_key
 from proofline.issue_card import IssueCard
 from proofline.lt_client import Match
-from proofline.overlay_widgets import IssuesPopup
+from proofline.overlay_widgets import IssuesPopup, offered_replacements
 from proofline.rephrase import RephraseTarget
 from proofline.replace_request import ReplaceRequest
 from proofline.screen_coords import (
@@ -63,6 +63,7 @@ class OverlayController(QObject):
     underline_target_changed = pyqtSignal(object)  # UnderlineTarget | None, for the monitor
     rephrase_requested = pyqtSignal(object)  # RephraseTarget, from the card's Rephrase link
     find_more_requested = pyqtSignal(object)  # FieldSnapshot, from the popup's Find more issues
+    rewrite_requested = pyqtSignal(object, str)  # FieldSnapshot, ai_rewrite style id
 
     def __init__(
         self,
@@ -97,6 +98,7 @@ class OverlayController(QObject):
         self._pending_edit: PendingEdit | None = None  # the last correction sent, for moving AI findings
         self._state = BadgeState.CHECKING
         self._message = ""
+        self._typed = False  # the text changed while this field had focus; until then no gray badge
 
         self._badge.clicked.connect(self._toggle_popup)
         self._popup.replacement_chosen.connect(self._on_replacement_chosen)
@@ -113,6 +115,8 @@ class OverlayController(QObject):
         self._card.all_issues_requested.connect(self._show_popup)
         self._card.rephrase_requested.connect(self._on_rephrase_link)
         self._popup.find_more_requested.connect(self._on_find_more)
+        self._popup.rewrite_requested.connect(self._on_rewrite)
+        self._popup.accept_all_requested.connect(self.accept_all_ai)
 
     @property
     def card(self) -> IssueCard:
@@ -135,6 +139,29 @@ class OverlayController(QObject):
     def _on_find_more(self) -> None:
         if self._snapshot is not None:
             self.find_more_requested.emit(self._snapshot)
+
+    def _on_rewrite(self, style_id: str) -> None:
+        if self._snapshot is not None:
+            self.rewrite_requested.emit(self._snapshot, style_id)
+
+    def accept_all_ai(self) -> bool:
+        """Apply every listed AI suggestion that has a fix as one verified replacement; False if none."""
+        snapshot = self._snapshot
+        fixes = sorted(((m, offered_replacements(m)[0]) for m in self._matches if is_ai_match(m) and offered_replacements(m)),
+                       key=lambda fix: fix[0].offset)
+        if snapshot is None or not fixes:
+            return False
+        start, end = fixes[0][0].offset, max(m.offset + m.length for m, _ in fixes)
+        parts, position = [], start
+        for match, replacement in fixes:  # in text order; AI matches never overlap
+            parts.append(snapshot.text[position:match.offset] + replacement)
+            position = match.offset + match.length
+        replacement = "".join(parts) + snapshot.text[position:end]
+        span = Match(start, end - start, "", "", (replacement,), AI_RULE_ID, AI_CATEGORY,
+                     snapshot.text[start:end], AI_CATEGORY)
+        log.info("Accepting %d AI suggestion(s) at once", len(fixes))
+        self.request_replace(ReplaceRequest.build(snapshot, span, replacement))
+        return True
 
     def _current_ai_matches(self) -> tuple[Match, ...]:
         snapshot = self._snapshot
@@ -174,6 +201,10 @@ class OverlayController(QObject):
             self._badge.hide()
             self._release_popup(NO_FIELD_STATUS)
             return
+        if previous is None or previous.field_id != snapshot.field_id:
+            self._typed = False
+        elif previous.text != snapshot.text:
+            self._typed = True
         if previous is None or (previous.field_id, previous.text) != (snapshot.field_id, snapshot.text):
             if self._ai_key != (snapshot.field_id, snapshot.text):
                 self._carry_ai_matches(snapshot)
@@ -241,8 +272,9 @@ class OverlayController(QObject):
         if snapshot is None or (self._state in SILENT_STATES and not show_silent):
             self._badge.hide()
             return
-        if self._state is BadgeState.CHECKING and not self._will_check(snapshot):
-            # No check will run, so a spinner would never stop (empty search box, chat input).
+        if self._state is BadgeState.CHECKING and not (self._typed and self._will_check(snapshot)):
+            # Short text: no check will run, so a spinner would never stop (chat input). Just
+            # focused: nothing typed yet, so wait quietly for the result.
             self._badge.hide()
             return
         self._badge.set_state(self._state, len(self._matches), self._message)
@@ -355,6 +387,8 @@ class OverlayController(QObject):
     def _toggle_popup(self) -> None:
         if self._popup.isVisible() and not self._popup.is_pinned:
             self._popup.hide()
+        elif self._card_held:  # a rephrase owns the card; the list would sit beside it
+            log.debug("Badge click ignored while the card is held")
         elif self._snapshot is not None:
             self._show_popup()
 
@@ -380,17 +414,18 @@ class OverlayController(QObject):
     def request_replace(self, request: ReplaceRequest) -> None:
         """Hand a correction to the monitor's checked replace path, as the card and popup do."""
         self._pending_edit = PendingEdit.from_request(request)
+        self._typed = True  # a correction is an edit: show that it is being checked
         self._release_popup(CHECKING_STATUS)
         self._set_state(BadgeState.CHECKING)
         self.refresh()
         self.replace_requested.emit(request)
 
     def apply_first_suggestion(self) -> bool:
-        """Keyboard alternative to the popup: apply the first suggestion of the first issue that has one."""
+        """Keyboard alternative to the popup: apply the first LanguageTool suggestion, never an AI one."""
         if self._snapshot is None:
             return False
         for match in self._matches:
-            if match.replacements:
+            if match.replacements and not is_ai_match(match):  # AI findings are unverified: never applied blind
                 self._on_replacement_chosen(match, match.replacements[0])
                 return True
         return False

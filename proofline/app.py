@@ -105,6 +105,7 @@ class LanguageToolApp(QObject):
         self._monitor.caret_offset_ready.connect(self._on_caret_offset)
         self._finder = IssueFinder(self._ai, self._overlay.popup, self._overlay.set_ai_matches)
         self._overlay.find_more_requested.connect(self._finder.start)
+        self._overlay.rewrite_requested.connect(self._finder.start_rewrite)
         self._monitor.field_changed.connect(self._finder.on_field_changed)
         self._monitor.field_changed.connect(self._overlay.on_field_changed)
         self._checker.checked.connect(self._overlay.on_checked)

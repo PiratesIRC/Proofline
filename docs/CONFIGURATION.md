@@ -45,7 +45,7 @@ absent take their defaults, so a file containing only `server_url` is valid.
 | `theme` | string | `auto` | Appearance › Theme | `auto` (follow Windows), `light`, `dark`. |
 | `tray_color` | string | `#2e7d32` | Appearance › Accent and tray icon colour | `#rrggbb`; also the accent colour of Settings and quick settings. |
 | `show_underlines` | bool | `true` | Appearance › Underline issues in the text | Draws a wavy line under each flagged word in a click-through window over the field. Needs an app that reports word positions through UI Automation (TextPattern); classic Win32 edit boxes keep only the badge. At most 50 issues per field are underlined. |
-| `badge_always_visible` | bool | `true` | Appearance › Show the badge in every text field | When `false`, the badge appears only when there are issues. Either way, the grey checking badge waits until the field holds `min_words` words. |
+| `badge_always_visible` | bool | `true` | Appearance › Show the badge in every text field | When `false`, the badge appears only when there are issues. Either way, the grey checking badge appears only after you type in the field and once it holds `min_words` words; a field you just clicked into shows nothing until its result arrives. |
 | `hotkey_toggle` | string | `ctrl+alt+p` | Shortcuts | `""` turns the shortcut off. Modifiers: `ctrl`, `alt`, `shift`, `win`; keys: letters, digits, `f1` to `f24`, `space`, `enter`, `tab`, `esc`, … |
 | `hotkey_check_now` | string | `ctrl+alt+l` | Shortcuts | Must differ from the other shortcuts. |
 | `hotkey_fix_first` | string | `ctrl+alt+j` | Shortcuts | Applies the first suggestion for the focused text box. `""` turns it off. |
@@ -64,24 +64,30 @@ absent take their defaults, so a file containing only `server_url` is valid.
 | `paused_until` | string | `""` | Quick settings › Pause for 1 hour | Local time the pause ends, e.g. `2026-10-23T14:00:00`. Restored at startup; checking turns back on once it has passed. `""` when not paused. |
 | `rule_labels` | list of strings | `[]` | (none) | `RULE_ID=Name` for rules turned off from the popup, so Settings can show their names. |
 | `welcome_shown` | bool | `false` | (none) | Set when the first-run welcome window is finished or closed. Only fresh installs (no settings file) see it. |
+| `defaults_version` | int | `2` | (none) | Which recommended exclusions this file already received. A file without it is treated as `1` and gets `explorer.exe` added once. |
 | `shown_hints` | list of strings | `[]` | (none) | Setup tips already shown (`google-docs`, `java-access-bridge`, `firefox-update`) and releases already announced (`update-<version>`). Remove an entry to see that tip or announcement again. |
 
 ### Default exclusions
 
 `disabled_apps`: `KeePass.exe`, `KeePassXC.exe`, `1Password.exe`, `Bitwarden.exe`,
 `WindowsTerminal.exe`, `cmd.exe`, `powershell.exe`, `pwsh.exe`, `conhost.exe`, `putty.exe`,
-`mstsc.exe`, `vmconnect.exe`, `RDCMan.exe`, `Code.exe`, `devenv.exe`, `Ssms.exe`, `EXCEL.EXE`.
+`mstsc.exe`, `vmconnect.exe`, `RDCMan.exe`, `Code.exe`, `devenv.exe`, `Ssms.exe`, `EXCEL.EXE`,
+`explorer.exe` (File Explorer, added in 0.4.1).
 
 `disabled_windows`: `Password`, `Sign in`, `Log in`, `Login`, `Windows Security`,
 `Command Prompt`, `PowerShell`, `Remote Desktop`.
 
 These apply to new installs and to config files that never saved these lists. **Add recommended
 exclusions** (Apps & fields › Apps) adds any that are missing without touching your own entries.
+A settings file from 0.4.0 or earlier gets `explorer.exe` added once on load (see `defaults_version`),
+unless it is already listed or in `always_check_apps`; if you remove it afterwards, it stays removed.
 
 ### Built-in field filters (not configurable)
 
 Independently of the lists above, the app never checks password fields, read-only fields,
-dropdowns without editable text, browser address bars, numeric/spinner fields, or fields whose
+dropdowns without editable text, browser address bars, search boxes (the word *search* in the
+field's label, help text or type, or a *Search* part in its automation ID or class), numeric/spinner
+fields, or fields whose
 label, placeholder or automation ID mentions one-time/verification codes, card numbers, CVV,
 SSN, PIN, routing or account numbers, IBAN, API/secret keys or tokens. A `custom_fields` entry
 overrides these filters except for passwords.

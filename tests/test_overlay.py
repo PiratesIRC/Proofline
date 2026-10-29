@@ -2,10 +2,10 @@ from dataclasses import replace
 
 import pytest
 from card_helpers import click_link, link_texts, visible_label_texts
-from factories import snapshot
+from factories import issue_match, snapshot
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
-from PyQt6.QtGui import QMouseEvent
-from PyQt6.QtWidgets import QLabel, QWidget
+from PyQt6.QtGui import QKeySequence, QMouseEvent
+from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
 
 from proofline.badge import BADGE_SIZE, BadgeState, BadgeWidget
 from proofline.config import Config
@@ -16,9 +16,11 @@ from proofline.overlay_controller import (
     badge_position,
 )
 from proofline.overlay_widgets import (
+    ACCEPT_ALL_TEXT,
     AI_CANCEL_TEXT,
     AI_RETRY_TEXT,
     AI_TEXT,
+    CHANGE_TONE_TEXT,
     DISABLE_RULE_TEXT,
     FIND_MORE_TEXT,
     POPUP_MAX_HEIGHT,
@@ -102,12 +104,12 @@ def harness(qtbot):
     return Harness(qtbot)
 
 
-def test_focus_shows_checking_badge_then_issue_count(harness):
+def test_focus_shows_no_badge_until_the_result_then_issue_count(harness):
     snap = snapshot()
     harness.controller.on_field_changed(snap)
-    assert harness.badge.isVisible()
-    assert harness.badge.state is BadgeState.CHECKING
+    assert not harness.badge.isVisible()  # nothing typed yet: no gray badge
     harness.controller.on_checked(snap, (MATCH,))
+    assert harness.badge.isVisible()
     assert harness.badge.state is BadgeState.ISSUES
     assert harness.badge._count == 1
 
@@ -316,6 +318,52 @@ def test_apply_first_suggestion_fixes_the_first_issue(qtbot, harness):
     assert (blocker.args[0].error_text, blocker.args[0].replacement) == ("are", "is")  # first one with a fix
 
 
+def test_apply_first_suggestion_skips_ai_findings_before_the_first_issue(qtbot, harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, (MATCH,))
+    harness.controller.set_ai_matches(snap, (issue_match("This", offset=0, replacement="That"),))  # before "are"
+    with qtbot.waitSignal(harness.controller.replace_requested) as blocker:
+        assert harness.controller.apply_first_suggestion()
+    assert (blocker.args[0].error_text, blocker.args[0].replacement) == ("are", "is")  # LanguageTool's, not the AI's
+
+
+def test_apply_first_suggestion_applies_nothing_when_only_ai_findings_have_fixes(qtbot, harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, ())
+    harness.controller.set_ai_matches(snap, (issue_match("This", offset=0, replacement="That"),))
+    assert harness.controller._matches  # the AI finding is shown...
+    with qtbot.assertNotEmitted(harness.controller.replace_requested):
+        assert not harness.controller.apply_first_suggestion()  # ...but the shortcut does not apply it
+
+
+def test_badge_click_does_not_open_popup_while_card_is_held(harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, (MATCH,))
+    harness.controller.hold_card(True)  # a rephrase is running
+    harness.badge.clicked.emit()
+    assert not harness.popup.isVisible()
+    harness.controller.hold_card(False)
+    harness.badge.clicked.emit()
+    assert harness.popup.isVisible()
+
+
+def test_typing_shows_checking_badge(harness):
+    harness.controller.on_field_changed(snapshot(text="Some words"))
+    harness.controller.on_field_changed(snapshot(text="Some words here"))
+    assert harness.badge.isVisible()
+    assert harness.badge.state is BadgeState.CHECKING
+
+
+def test_clicking_into_another_field_shows_no_checking_badge(harness):
+    harness.controller.on_field_changed(snapshot(text="Some words"))
+    harness.controller.on_field_changed(snapshot(text="Some words here"))
+    harness.controller.on_field_changed(snapshot(field_id=(9,), text="Other prefilled words"))
+    assert not harness.badge.isVisible()
+
+
 @pytest.mark.parametrize("text", ["", "   ", "\ufeff", "One"])
 def test_no_checking_badge_until_there_is_enough_text_to_check(harness, text):
     harness.controller.on_field_changed(snapshot(text=text))  # min_words defaults to 2
@@ -462,3 +510,89 @@ def test_ai_text_is_plain(popup):
     popup.show_issues((marked,), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, text="I has a cat.")
     labels = [label for label in popup.findChildren(QLabel) if label.text() == "<b>x</b>"]
     assert labels and all(label.textFormat() == Qt.TextFormat.PlainText for label in labels)
+
+
+def _button(widget, text):
+    return next(b for b in widget.findChildren(QPushButton) if b.text() == text and b.isVisible())
+
+
+def test_ai_deletion_offers_a_remove_button_that_applies_the_empty_text(qtbot, popup):
+    deletion = replace(AI_MATCH, replacements=())  # what ai_jobs builds for an AI deletion
+    popup.show_issues((deletion,), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, text="I has a cat.")
+    assert "No suggestion" not in visible_label_texts(popup)
+    with qtbot.waitSignal(popup.replacement_chosen) as chosen:
+        _button(popup, "(remove)").click()
+    assert chosen.args == [deletion, ""]
+
+
+def test_no_suggestion_stays_for_a_languagetool_match_without_fixes(popup):
+    popup.show_issues((replace(AI_MATCH, rule_id="SOME_RULE", replacements=()),), "Notepad", POPUP_ANCHOR,
+                      POPUP_BOUNDS, text="I has a cat.")
+    assert "No suggestion" in visible_label_texts(popup)
+
+
+def test_fix_button_shows_an_ampersand_without_a_shortcut_underline(popup):
+    popup.show_issues((replace(AI_MATCH, replacements=("Tom & Jerry",)),), "Notepad", POPUP_ANCHOR,
+                      POPUP_BOUNDS, text="I has a cat.")
+    button = _button(popup, "Tom && Jerry")
+    assert QKeySequence.mnemonic(button.text()).isEmpty()
+
+
+
+def test_ai_row_offers_rewrite_for_clarity(qtbot, popup):
+    popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, ai_available=True)
+    click_link(popup, AI_TEXT)
+    with qtbot.waitSignal(popup.rewrite_requested) as blocker:
+        click_link(popup, "Rewrite for clarity")
+    assert blocker.args == ["clarity"]
+    assert "Rewrite for clarity" not in link_texts(popup)  # the row closes once a job starts
+
+
+def test_change_tone_opens_the_four_presets(qtbot, popup):
+    popup.show_issues((), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, ai_available=True)
+    click_link(popup, AI_TEXT)
+    assert "More formal" not in link_texts(popup)
+    click_link(popup, CHANGE_TONE_TEXT)
+    assert {"More formal", "More casual", "Shorter", "Friendlier"} <= set(link_texts(popup))
+    with qtbot.waitSignal(popup.rewrite_requested) as blocker:
+        click_link(popup, "Friendlier")
+    assert blocker.args == ["friendlier"]
+    click_link(popup, AI_TEXT)
+    assert "More formal" not in link_texts(popup)  # reopening the AI row starts with the presets closed
+
+
+def test_accept_all_shows_for_two_or_more_ai_fixes(qtbot, popup):
+    one = (issue_match("This", offset=0, replacement="That"),)
+    popup.show_issues(one, "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, text="This are a test.")
+    assert ACCEPT_ALL_TEXT not in link_texts(popup)
+    two = (*one, issue_match("test.", offset=11, replacement="trial."))
+    popup.show_issues(two, "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, text="This are a test.")
+    with qtbot.waitSignal(popup.accept_all_requested):
+        click_link(popup, ACCEPT_ALL_TEXT)
+
+
+def test_accept_all_applies_every_ai_fix_as_one_replacement(qtbot, harness):
+    snap = snapshot()  # "This are a test."
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, ())
+    harness.controller.set_ai_matches(snap, (issue_match("test.", offset=11, replacement="trial."),
+                                             issue_match("This", offset=0, replacement="That")))
+    with qtbot.waitSignal(harness.controller.replace_requested) as blocker:
+        assert harness.controller.accept_all_ai()
+    request = blocker.args[0]
+    assert (request.offset, request.error_text, request.replacement) == (0, "This are a test.", "That are a trial.")
+
+
+def test_accept_all_with_no_ai_fix_does_nothing(harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, (MATCH,))
+    assert not harness.controller.accept_all_ai()
+
+
+def test_rewrite_link_asks_for_the_current_field(qtbot, harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    with qtbot.waitSignal(harness.controller.rewrite_requested) as blocker:
+        harness.controller.popup.rewrite_requested.emit("formal")
+    assert blocker.args == [snap, "formal"]

@@ -1,6 +1,6 @@
 """Decide whether a focused text field should be skipped by the checker.
 
-A field is skipped when it is an address bar, a numeric/spinner control, or
+A field is skipped when it is an address bar, a search box, a numeric/spinner control, or
 looks sensitive (passwords, card numbers, tokens) based on its UIA name,
 placeholder and automation id. Nothing here touches Windows APIs, so it can be
 unit tested anywhere.
@@ -21,6 +21,7 @@ ADDRESS_BAR_AUTOMATION_ID = "urlbar-input"
 SPINNER_CONTROL_TYPE = "SpinnerControl"
 
 REASON_ADDRESS_BAR = "address bar"
+REASON_SEARCH = "search field"
 REASON_NUMERIC = "numeric field"
 REASON_SENSITIVE_PREFIX = "sensitive field"
 
@@ -56,6 +57,12 @@ _SENSITIVE_PHRASES = (
     rf"client{_SEP}secret",
     r"token",
 )
+# A search box: "search" as a word in the name, help text or UIA type ("search box" in
+# Chromium and Firefox for <input type=search>), or a camelCase part of an id or class
+# ("SearchEditBox", "txtSearch"). "Research" and "researchNotes" do not match.
+SEARCH_WORD_PATTERN = re.compile(_WORD_START + "search", re.IGNORECASE)
+SEARCH_ID_PATTERN = re.compile(r"(?<![A-Za-z])[Ss]earch|Search|SEARCH")
+
 SENSITIVE_PATTERN = re.compile(
     _WORD_START + "(?:" + "|".join(_SENSITIVE_PHRASES) + ")" + _WORD_END,
     re.IGNORECASE,
@@ -72,12 +79,15 @@ class FieldTraits:
     help_text: str
     automation_id: str
     has_range_value: bool
+    localized_control_type: str = ""
 
 
 def skip_reason(traits: FieldTraits) -> str:
     """Return why the field should not be checked, or "" to allow checking."""
     if _is_address_bar(traits):
         return REASON_ADDRESS_BAR
+    if _is_search(traits):
+        return REASON_SEARCH
     if _is_numeric(traits):
         return REASON_NUMERIC
     phrase = _sensitive_phrase(traits)
@@ -91,6 +101,12 @@ def _is_address_bar(traits: FieldTraits) -> bool:
     if any(marker.casefold() in class_name for marker in ADDRESS_BAR_CLASS_MARKERS):
         return True
     return ADDRESS_BAR_AUTOMATION_ID in traits.automation_id.casefold()
+
+
+def _is_search(traits: FieldTraits) -> bool:
+    if any(SEARCH_WORD_PATTERN.search(text) for text in (traits.name, traits.help_text, traits.localized_control_type)):
+        return True
+    return any(SEARCH_ID_PATTERN.search(text) for text in (traits.automation_id, traits.class_name))
 
 
 def _is_numeric(traits: FieldTraits) -> bool:

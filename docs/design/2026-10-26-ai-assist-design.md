@@ -1,6 +1,9 @@
 # AI assist (Claude API) design
 
-Date: 2026-10-26. Status: draft for the operator's approval. Nothing here is built yet.
+Date: 2026-10-26. Status: built. Steps 1-2 shipped in 0.3.0, step 3 in 0.4.0, step 4 in 0.4.1
+(2026-10-29). Step 4 differences from this draft: whole field only (no selection), rows reuse the
+AI suggestion row (fix button = Accept, Ignore for now = Skip) instead of a struck-through layout,
+and changes that add or remove a line break are counted, not offered.
 
 Marking: **[operator]** = the operator chose it in the brainstorming answers.
 **[my call]** = Claude chose it after the operator said "go"; the operator can overturn any of these.

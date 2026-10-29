@@ -8,8 +8,9 @@ because their text can carry the URL.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, TypeVar
 
 import httpx2
 
@@ -17,6 +18,7 @@ from proofline.ai_providers import CLOUD_TIMEOUT_SECONDS
 from proofline.ai_types import AiError
 
 log = logging.getLogger(__name__)
+T = TypeVar("T")
 
 CREDIT_CODE = "credit_balance_exhausted"
 KEY_HINTS = ("API key", "API_KEY")
@@ -48,6 +50,37 @@ def message(kind: str, label: str, seconds: float = CLOUD_TIMEOUT_SECONDS, detai
 def make_client(timeout: float, transport: httpx2.BaseTransport | None = None) -> httpx2.Client:
     """A client that never follows redirects and ignores proxy environment variables."""
     return httpx2.Client(timeout=timeout, follow_redirects=False, trust_env=False, transport=transport)
+
+
+class DeadlineExceeded(Exception):
+    """A request did not finish within its total time limit."""
+
+
+def run_within(call: Callable[[], T], seconds: float) -> T:
+    """Run call and return its result, or raise DeadlineExceeded if it has not finished in seconds.
+
+    httpx timeouts apply to each connect or read, so a server that sends one byte at a time can hold
+    a request far longer than seconds. The call runs on a helper thread that the caller stops waiting
+    for at the deadline. Closing the client at the end of the request (every caller does) ends a read
+    that is still blocked. Exceptions from call are re-raised unchanged.
+    """
+    outcome: list[tuple[bool, Any]] = []
+
+    def run() -> None:
+        try:
+            outcome.append((True, call()))
+        except Exception as exc:  # noqa: BLE001 - handed back to the calling thread, never lost
+            outcome.append((False, exc))
+
+    worker = threading.Thread(target=run, name="ai-request", daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if not outcome:
+        raise DeadlineExceeded(f"no answer within {seconds:g} seconds")
+    succeeded, value = outcome[0]
+    if succeeded:
+        return value
+    raise value
 
 
 def post_json(
@@ -111,7 +144,9 @@ def _exchange(
 ) -> dict:
     seconds = client.timeout.read or CLOUD_TIMEOUT_SECONDS
     try:
-        response = send()
+        response = run_within(send, seconds)
+    except DeadlineExceeded:
+        raise AiError("timeout", message("timeout", label, seconds=seconds)) from None
     except httpx2.TimeoutException:
         raise AiError("timeout", message("timeout", label, seconds=seconds)) from None
     except httpx2.HTTPError:

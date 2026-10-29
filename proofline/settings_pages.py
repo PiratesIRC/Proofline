@@ -58,6 +58,7 @@ from proofline.ui_kit import (
     InfoBar,
     SettingCard,
     ToggleSwitch,
+    set_link_text,
 )
 from proofline.update_check import RELEASES_PAGE_URL
 from proofline.workers import run_in_background
@@ -318,7 +319,7 @@ class CheckingPage(Page):
         self._hidden.setChecked(config.flag_hidden_characters)
         self._words.set_items(config.personal_dictionary)
         self._rules.set_label(lambda rule_id: rule_label(config, rule_id))
-        self.rules_link.setText(f'<a href="{rule_browser_url(config.language)}">{RULES_LINK_TEXT}</a>')
+        set_link_text(self.rules_link, f'<a href="{rule_browser_url(config.language)}">{RULES_LINK_TEXT}</a>')
         self._rules.set_items(config.disabled_rules)
         self._categories.set_disabled(config.disabled_categories)
         self._dictionary.set_summary(_count(len(config.personal_dictionary), "word"))

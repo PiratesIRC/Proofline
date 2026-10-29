@@ -58,7 +58,8 @@ choose and shows a small badge beside the field. Click the badge, click a sugges
   choose, or a local Ollama server with no key and no cost. **AI Rephrase** in the card under an
   underlined word rewrites one sentence, with the changed words in bold, and only that sentence
   is sent. **Find more issues** in the issues popup asks the AI for problems LanguageTool missed
-  in the whole text box. A monthly spending limit stops cloud AI requests when the next one could
+  in the whole text box; **Rewrite for clarity** and **Change tone** list the AI's edits as
+  separate changes you accept one at a time or all at once. A monthly spending limit stops cloud AI requests when the next one could
   take the month past it. See [AI suggestions](#ai-suggestions-optional).
 - **Light and dark**, following Windows or your choice, with your accent colour.
 - **Installer or portable**, no administrator rights needed for either.
@@ -296,6 +297,21 @@ buttons and **Ignore for now**.
 - On text with no LanguageTool issues, the badge appears only while **Settings › Appearance ›
   Show the badge in every text field** is on (the default).
 
+**Rewrite for clarity and Change tone.** In the issues popup, click **AI ▾**, then **Rewrite
+for clarity**, or **Change tone** and one of **More formal**, **More casual**, **Shorter** or
+**Friendlier**. The AI rewrites the whole text box, and Proofline lists each changed phrase as its
+own row titled with the job ("Clearer wording", "More formal" and so on): click the new wording to
+apply that change, or **Ignore for now** to skip it. **Accept all AI suggestions** at the top of
+the list applies every AI change at once. Your text is never replaced as one block.
+
+- The whole text of the box is sent, at most 8,000 characters. The AI sends the whole text back,
+  so a full box costs a little more than Find more issues.
+- A rewrite that changes most of the words says so above the rows; check each change.
+- A change that adds or removes a line break is not offered (the line under the popup says how
+  many were left out), because pasting a line break is not reliable in every app.
+- The changes belong to that text, like Find more issues: editing it yourself clears them, and a
+  change Proofline applies keeps the others in place.
+
 ### When a text box isn't checked
 
 Use **Add a text field…** (tray menu, quick settings, or **Settings › Apps & fields**) and click
@@ -352,8 +368,8 @@ The app talks to LanguageTool's HTTP API (`POST /v2/check`).
   text you ask about is sent to the AI provider you chose (or to the Ollama or other server
   address you set), as described in that section.
 - Password fields are never read. By default the app also skips password managers, terminals,
-  remote desktop and VM windows, code and spreadsheet editors, browser address bars, numeric
-  fields, fields labelled like one-time codes, card numbers, SSNs, PINs, API keys or tokens, and
+  remote desktop and VM windows, code and spreadsheet editors, File Explorer, browser address
+  bars, search boxes, numeric fields, fields labelled like one-time codes, card numbers, SSNs, PINs, API keys or tokens, and
   windows whose title contains *Password*, *Sign in*, *Log in*, *Login* or *Windows Security*.
 - Logs never contain what you type unless you turn on **Debug mode** (Settings › Advanced) or set
   `PROOFLINE_LOG_TEXT=1`. Window titles are logged.

@@ -62,6 +62,17 @@ def test_debouncer_reports_again_after_edit():
     assert debouncer.update(snapshot(text="ab"), 3.0).text == "ab"
 
 
+def test_debouncer_reports_again_after_an_edit_back_to_reported_text():
+    # Delete a word and type it again: the overlay cleared its results, so the text needs a new check.
+    debouncer = TypingDebouncer(DELAY)
+    debouncer.update(snapshot(text="a b"), 0.0)
+    assert debouncer.update(snapshot(text="a b"), 1.0).text == "a b"
+    debouncer.update(snapshot(text="a"), 2.0)
+    debouncer.update(snapshot(text="a b"), 3.0)
+    assert debouncer.update(snapshot(text="a b"), 4.0).text == "a b"
+    assert debouncer.update(snapshot(text="a b"), 5.0) is None
+
+
 def test_debouncer_rechecks_when_returning_to_a_field():
     debouncer = TypingDebouncer(DELAY)
     first, other = snapshot(), snapshot(field_id=(9,))

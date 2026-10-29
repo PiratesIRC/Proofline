@@ -8,6 +8,8 @@ from PyQt6.QtCore import QRect
 
 from proofline.ai_client import TIMEOUT_MESSAGE, AiError
 from proofline.ai_find import (
+    MOSTLY_CHANGED_MESSAGE,
+    NO_CHANGES_MESSAGE,
     NOTHING_FOUND_MESSAGE,
     TEXT_TOO_LONG_MESSAGE,
     WAITING_TEXT,
@@ -137,3 +139,60 @@ def test_answer_after_ai_turned_off_is_dropped(qtbot, make):
     r.cfg["value"] = Config(ai_enabled=False)
     finish(qtbot, r)
     assert r.delivered == [] and WAITING_TEXT not in visible_label_texts(r.popup)
+
+
+def test_waiting_line_stays_gone_when_popup_reopens_after_ai_turned_off(qtbot, make):
+    r = make({"issues": [issue("are", replacement="is")]})
+    r.finder.start(r.snap)
+    r.cfg["value"] = Config(ai_enabled=False)
+    r.popup.hide()
+    r.popup.show_issues((), "Notepad", ANCHOR, BOUNDS, ai_available=True)  # the popup opens again
+    assert WAITING_TEXT not in visible_label_texts(r.popup) and AI_CANCEL_TEXT not in link_texts(r.popup)
+    finish(qtbot, r)  # the late answer changes nothing
+    assert r.delivered == [] and WAITING_TEXT not in visible_label_texts(r.popup)
+
+
+def test_failure_under_the_undo_notice_shows_no_ai_line(qtbot, make):
+    r = make(AiError("timeout", TIMEOUT_MESSAGE))
+    r.finder.start(r.snap)
+    r.popup.show_notice_only("Checking is off in Notepad.", "disabled_apps", "notepad.exe")
+    finish(qtbot, r, "failed")
+    assert TIMEOUT_MESSAGE not in visible_label_texts(r.popup) and AI_RETRY_TEXT not in link_texts(r.popup)
+    assert "Checking is off in Notepad." in visible_label_texts(r.popup)
+
+
+
+def test_rewrite_delivers_change_rows_and_sends_the_rewrite_job(qtbot, make):
+    r = make({"text": "This is a test."})
+    r.finder.start_rewrite(r.snap, "formal")
+    assert WAITING_TEXT in visible_label_texts(r.popup)
+    finish(qtbot, r)
+    ((_snap, matches),) = r.delivered
+    assert [(m.error_text, m.replacements, m.short_message) for m in matches] == [("are", ("is",), "More formal")]
+    assert r.backend.sent[0].job == "rewrite_formal" and r.backend.sent[0].text == "This are a test."
+    assert WAITING_TEXT not in visible_label_texts(r.popup)
+
+
+def test_rewrite_with_no_changes_says_so(qtbot, make):
+    r = make({"text": "This are a test."})
+    r.finder.start_rewrite(r.snap, "clarity")
+    finish(qtbot, r)
+    assert NO_CHANGES_MESSAGE in visible_label_texts(r.popup) and r.delivered == []
+
+
+def test_rewrite_of_most_words_delivers_with_a_warning(qtbot, make):
+    r = make({"text": "We had pears today."})
+    r.finder.start_rewrite(r.snap, "clarity")
+    finish(qtbot, r)
+    assert len(r.delivered) == 1 and MOSTLY_CHANGED_MESSAGE in visible_label_texts(r.popup)
+
+
+def test_retry_after_a_failed_rewrite_sends_the_same_rewrite(qtbot, make):
+    r = make(AiError("timeout", TIMEOUT_MESSAGE), {"text": "This is a test."})
+    r.finder.start_rewrite(r.snap, "shorter")
+    finish(qtbot, r, "failed")
+    r.backend.gate.clear()
+    click_link(r.popup, AI_RETRY_TEXT)
+    finish(qtbot, r)
+    assert [request.job for request in r.backend.sent] == ["rewrite_shorter", "rewrite_shorter"]
+    assert len(r.delivered) == 1

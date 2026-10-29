@@ -148,7 +148,14 @@ DEFAULT_DISABLED_APPS = (
     "devenv.exe",
     "Ssms.exe",
     "EXCEL.EXE",
+    # File Explorer: its address bar, search box and rename box hold paths and file names
+    "explorer.exe",
 )
+# Apps added to the recommended list after the first release, by the defaults_version that added
+# them. Loading an older settings file adds them once, unless the user set the app to always check.
+ADDED_DISABLED_APPS = {2: ("explorer.exe",)}
+DEFAULTS_VERSION = max(ADDED_DISABLED_APPS)
+LEGACY_DEFAULTS_VERSION = 1  # a settings file without the key predates the added apps
 DEFAULT_DISABLED_WINDOWS = (
     "Password",
     "Sign in",
@@ -247,6 +254,7 @@ class Config:
     check_for_updates: bool = True  # ask GitHub daily whether a newer release exists
     share_usage_counts: bool = True  # anonymous Corrections Applied total for the README badges
     welcome_shown: bool = False  # the first-run welcome window was finished or closed
+    defaults_version: int = DEFAULTS_VERSION  # the ADDED_DISABLED_APPS already applied
 
     def __repr__(self) -> str:
         values = ", ".join(
@@ -347,6 +355,8 @@ def validate(config: Config) -> Config:
     low, high = MIN_WORDS_RANGE
     if type(config.min_words) is not int or not low <= config.min_words <= high:
         raise ConfigError(f"Minimum words must be between {low} and {high}.")
+    if type(config.defaults_version) is not int or config.defaults_version < LEGACY_DEFAULTS_VERSION:
+        raise ConfigError("'defaults_version' must be a whole number from 1.")
     _validate_paused_until(config.paused_until)
     _validate_ai(config)
     if config.theme not in THEMES:
@@ -496,11 +506,30 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
 
     known = {f.name for f in fields(Config)}
     raw = _sanitize_ai(raw)
+    raw.setdefault("defaults_version", LEGACY_DEFAULTS_VERSION)
     try:
-        return validate(Config(**{k: v for k, v in raw.items() if k in known}))
+        return with_added_defaults(validate(Config(**{k: v for k, v in raw.items() if k in known})))
     except ConfigError as exc:
         log.warning("Invalid setting in %s (%s); using defaults", path, exc)
         return Config()
+
+
+def with_added_defaults(config: Config) -> Config:
+    """config with the recommended exclusions added since its defaults_version, each once.
+
+    An app already listed, or set to always check, is left as the user has it. The result is
+    saved with the next settings change; until then each start applies the same addition.
+    """
+    if config.defaults_version >= DEFAULTS_VERSION:
+        return config
+    listed = {app.casefold() for app in (*config.disabled_apps, *config.always_check_apps)}
+    added = tuple(
+        app for version, apps in sorted(ADDED_DISABLED_APPS.items()) if version > config.defaults_version
+        for app in apps if app.casefold() not in listed
+    )
+    if added:
+        log.info("Added to the apps not checked (new recommended exclusions): %s", ", ".join(added))
+    return replace(config, disabled_apps=(*config.disabled_apps, *added), defaults_version=DEFAULTS_VERSION)
 
 
 def save_config(config: Config, path: Path = CONFIG_PATH) -> Config:

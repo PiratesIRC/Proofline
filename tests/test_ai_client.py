@@ -1,4 +1,5 @@
 import logging
+import threading
 from types import SimpleNamespace
 
 import anthropic
@@ -146,6 +147,24 @@ def test_client_is_closed_after_every_send(monkeypatch):
     with pytest.raises(AiError):
         AnthropicBackend(SECRET_KEY).send(REQUEST, "claude-haiku-5-5")
     assert len(closed) == 2
+
+
+def test_a_slow_claude_answer_is_a_timeout_at_the_total_limit(monkeypatch):
+    release = threading.Event()
+    monkeypatch.setattr(ai_client, "TIMEOUT_SECONDS", 0.05)
+
+    def handler(request):
+        release.wait(5)  # no answer within the limit
+        return httpx.Response(200, json=OK_MESSAGE)
+
+    with_transport(monkeypatch, handler)
+    try:
+        with pytest.raises(AiError) as caught:
+            AnthropicBackend(SECRET_KEY).send(REQUEST, "claude-haiku-5-5")
+    finally:
+        release.set()
+    assert caught.value.kind == "timeout"
+    assert caught.value.__context__ is None
 
 
 def test_base_url_is_fixed_even_with_env(monkeypatch):

@@ -125,14 +125,12 @@ def test_reason_phrase_is_lower_cased():
 @pytest.mark.parametrize(
     "name",
     [
-        "Search",
         "Message",
         "Subject",
         "Comments",
         "Description",
         "Notes",
         "Write a reply",
-        "Search Dell Premier",
         "Email body",
         "Opinion",
         "Shopping list",
@@ -165,3 +163,39 @@ def test_numeric_takes_precedence_over_sensitive_label():
 def test_sensitive_pattern_is_exported_and_compiled():
     assert SENSITIVE_PATTERN.search("Enter PIN")
     assert SENSITIVE_PATTERN.search("spinning") is None
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"name": "Search"},
+        {"name": "Search box"},  # Start menu (SearchHost.exe)
+        {"name": "Search box, Find a setting"},  # Windows Settings
+        {"name": "Search recordings..."},  # a web app placeholder
+        {"help_text": "Type to search"},
+        {"localized_control_type": "search box"},  # <input type=search> in Chromium and Firefox
+        {"automation_id": "SearchEditBox"},
+        {"automation_id": "txtSearch"},
+        {"automation_id": "site-search"},
+        {"class_name": "SearchTextBox"},
+    ],
+)
+def test_search_fields_are_skipped(overrides):
+    assert skip_reason(traits(**overrides)) == "search field"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"name": "Research notes"},
+        {"automation_id": "researchNotes"},
+        {"class_name": "Researcher"},
+        {"localized_control_type": "edit"},
+    ],
+)
+def test_words_containing_search_are_not_search_fields(overrides):
+    assert skip_reason(traits(**overrides)) == ""
+
+
+def test_address_bar_wins_over_search():
+    assert skip_reason(traits(class_name="OmniboxViewViews", name="Address and search bar")) == "address bar"

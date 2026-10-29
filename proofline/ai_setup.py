@@ -43,6 +43,10 @@ KEY_STORE_FAILED_MESSAGE = "Windows could not store the key."
 KEY_READ_FAILED_MESSAGE = "Proofline could not read the key from Windows Credential Manager. Details are in the log."
 TEST_NOT_SENT_MESSAGE = "Settings did not switch to this provider, so its key was not tested."
 MODELS_FAILED_MESSAGE = "Proofline could not load the model list."
+TEST_ERROR_MESSAGE = "Proofline could not start the test. Details are in the log."
+# The settings that change the usage line: the limit, the provider and its model or address, AI on or off.
+USAGE_FIELDS = ("ai_enabled", "ai_provider", "ai_model", "ai_models", "ai_ollama_url", "ai_other_url",
+                "ai_monthly_cap_cents")
 KEY_MOVED_MESSAGE = ("The key for Other server was removed because the address changed. "
                      "Save it again for the new address.")
 KEY_REMOVE_FAILED_MESSAGE = ("Proofline could not remove the key for the old Other server address, so it will not "
@@ -83,9 +87,12 @@ class AiSetup(QObject):
             self._refresh_models(OPENROUTER_ID, retry=True)
 
     def config_changed(self, previous: Config) -> None:
-        """Called by the app after every config change: turning AI on with OpenRouter selected fetches its
-        prices, as at startup (the page's provider pick and Refresh fetch on their own)."""
+        """Called by the app after every config change: the usage line follows a changed limit or provider, and
+        turning AI on with OpenRouter selected fetches its prices, as at startup (the page's provider pick and
+        Refresh fetch on their own)."""
         config = self._config_provider()
+        if self._usage_inputs(config) != self._usage_inputs(previous):
+            self._show_usage(self.page.current_provider())
         if config.ai_enabled and not previous.ai_enabled and config.ai_provider == OPENROUTER_ID:
             self._refresh_models(OPENROUTER_ID, retry=True)
 
@@ -95,7 +102,8 @@ class AiSetup(QObject):
         self._show_usage(pid)
 
     def _show_key_state(self, pid: str) -> None:
-        """Show whether pid has a key saved; say so when Credential Manager cannot be read."""
+        """Show whether pid has a key saved; say so when Credential Manager cannot be read. An Other key that is
+        saved but not bound to the address Other uses is flagged again on every refresh, not only once."""
         try:
             saved = self._keys.load(pid) is not None
         except Exception:  # treated as no key, but the page says why
@@ -104,6 +112,8 @@ class AiSetup(QObject):
             self.page.show_key_result(pid, False, KEY_READ_FAILED_MESSAGE)
             return
         self.page.set_key_saved(pid, saved)
+        if saved and pid == OTHER_ID and not self._config_provider().other_key_applies():
+            self.page.show_key_warning(pid, RESAVE_KEY_TEXT)
 
     def _show_usage(self, pid: str) -> None:
         config = self._config_provider()
@@ -111,6 +121,10 @@ class AiSetup(QObject):
             provider(pid), config.ai_address_for(pid), config.ai_model_for(pid),
             self.service.month_totals(), self.service.token_totals(pid), config.ai_monthly_cap_cents,
         ))
+
+    @staticmethod
+    def _usage_inputs(config: Config) -> tuple:
+        return tuple(getattr(config, name) for name in USAGE_FIELDS)
 
     def _on_save(self, pid: str, key: str) -> None:
         if is_insecure_remote(self._config_provider().ai_address_for(pid)):
@@ -153,7 +167,12 @@ class AiSetup(QObject):
             self.page.show_key_result(pid, False, BUSY_MESSAGE)
             return
         self._test_pid = pid
-        self.service.submit(key_test_request())
+        try:
+            self.service.submit(key_test_request())  # reads the key: an unreadable store must not leave Test disabled
+        except Exception:
+            log.warning("Could not start the key test", exc_info=True)
+            self._test_pid = None
+            self.page.show_key_result(pid, False, TEST_ERROR_MESSAGE)
 
     def _on_finished(self, request: AiRequest, result: object) -> None:
         if request.job == TEST_JOB:

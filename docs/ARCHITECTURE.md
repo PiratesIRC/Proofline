@@ -41,8 +41,8 @@ immutable `Config` dataclass: every change creates a new object, saves it, then
 |---|---|
 | Entry point and wiring | `main.py`, `app.py`, `app_identity.py` (AppUserModelID for notifications) |
 | Configuration | `config.py` (dataclass, validation, defaults, JSON I/O), `logging_setup.py` |
-| Reading fields | `text_monitor.py` (thread, debounce, capture mode), `uia_reader.py` (UIA), `win32_edit.py` (classic Edit/RichEdit fallback), `field_filters.py` (address bars, numeric, sensitive labels), `setup_hints.py`, `text_snapshot.py` (plain data types) |
-| Checking | `checker.py`, `lt_client.py` (HTTP API, UTF-16 offset mapping), `dictionary.py`, `hidden_chars.py` (local invisible-character and unusual-space matches, merged after the server answers), `health.py` (server health, outage notifications), `server_test.py` (Settings connection test) |
+| Reading fields | `text_monitor.py` (thread, debounce, capture mode), `uia_reader.py` (UIA), `win32_edit.py` (classic Edit/RichEdit fallback), `field_filters.py` (address bars, search boxes, numeric, sensitive labels), `setup_hints.py`, `text_snapshot.py` (plain data types) |
+| Checking | `checker.py` (last 32 results cached by settings and text), `lt_client.py` (HTTP API, UTF-16 offset mapping), `dictionary.py`, `hidden_chars.py` (local invisible-character and unusual-space matches, merged after the server answers), `health.py` (server health, outage notifications), `server_test.py` (Settings connection test) |
 | Overlay | `overlay_controller.py`, `badge.py`, `overlay_widgets.py` (issues popup, Undo notice), `underlines.py` + `underline_rects.py` + `underline_overlay.py` (wavy lines under flagged words), `issue_card.py` (card at the word holding the caret), `app_names.py` (friendly app names), `non_activating.py`, `screen_coords.py` (physical → logical pixels) |
 | Corrections | `replace_request.py`, `text_replace.py`, `clipboard.py` |
 | Tray and quick settings | `tray.py`, `tray_flyout.py`, `quick_settings.py`, `window_corners.py` |
@@ -50,7 +50,7 @@ immutable `Config` dataclass: every change creates a new object, saves it, then
 | Desktop integration | `integration.py`, `theme.py`, `autostart.py`, `hotkeys.py` |
 | Diagnostics | `diagnostics.py`, `probe.py` |
 | Usage counts | `usage.py` (ledger, Windows lock, reporting points), `usage_client.py` (vendored from plugin-stats, pinned in `scripts/client_manifest.json`; never edit) |
-| AI assist (on request only) | `ai_prices.py` (models and prices), `ai_usage.py` (`ai_usage.jsonl` ledger, monthly totals, cap check), `ai_keys.py` (API key in Windows Credential Manager), `ai_client.py` (one structured-output request through the `anthropic` SDK, error kinds), `ai_service.py` (one request at a time, refusals, records cost; HTTP on the Qt thread pool), `ai_settings_page.py` + `ai_setup.py` (Settings, AI), `sentences.py` (the sentence at an offset), `ai_jobs.py` (each job's prompt, schema and answer cleaning), `ai_diff.py` (changed words in bold), `rephrase.py` (one rephrase at a time in the card; drops stale answers), `ai_find.py` (Find more issues: one request at a time, status in the popup), `ai_merge.py` (AI findings merged with LanguageTool's, moved across Proofline's own fixes) |
+| AI assist (on request only) | `ai_prices.py` (models and prices), `ai_usage.py` (`ai_usage.jsonl` ledger, monthly totals, cap check), `ai_keys.py` (API key in Windows Credential Manager), `ai_client.py` (one structured-output request through the `anthropic` SDK, error kinds), `ai_service.py` (one request at a time, refusals, records cost; HTTP on the Qt thread pool), `ai_settings_page.py` + `ai_setup.py` (Settings, AI), `sentences.py` (the sentence at an offset), `ai_jobs.py` (each job's prompt, schema and answer cleaning), `ai_diff.py` (changed words in bold; `word_hunks` splits a rewrite into word-level changes), `ai_rewrite.py` (Rewrite for clarity and Change tone: prompts, and the rewrite as one AI match per changed phrase), `rephrase.py` (one rephrase at a time in the card; drops stale answers), `ai_find.py` (Find more issues and the rewrites: one request at a time, status in the popup), `ai_merge.py` (AI findings merged with LanguageTool's, moved across Proofline's own fixes) |
 | Update check | `update_check.py` (GitHub latest release, cached in `version_check.json`, background refresh) |
 | Rename migration | `legacy.py` (moves settings and removes registry entries from the LanguageTool Desktop name) |
 | Packaging | `packaging/Proofline.spec`, `packaging/build.ps1`, `packaging/make_icon.py` |
@@ -83,7 +83,7 @@ settings page actions.
 
 A request flows like this:
 
-1. `ai_settings_page.py` or a job (`rephrase.py`, `ai_find.py`) asks `AiService` (on the GUI thread)
+1. `ai_settings_page.py` or a job (`rephrase.py`, `ai_find.py`, which also sends the rewrites) asks `AiService` (on the GUI thread)
    for a request. `AiService` refuses it unless AI is on, the provider's key is saved (when it
    needs one), the text is short enough, no other request runs, and the monthly limit allows it.
 2. `AiService` calls `make_backend(provider(pid), key, address)` and runs `backend.send(request, model)`

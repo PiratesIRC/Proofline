@@ -73,7 +73,14 @@ class Rephraser(QObject):
         return self._held
 
     def start(self, target: RephraseTarget) -> None:
-        """Show the waiting card under target.anchor, then send the sentence."""
+        """Show the waiting card under target.anchor, then send the sentence.
+
+        A press while a request is still running is ignored: the running request keeps going and
+        its answer is shown. Sending a second one would bill the first answer and drop it.
+        """
+        if self._request is not None:
+            log.debug("Rephrase shortcut ignored: a request is already running")
+            return
         self._end(release=False)
         self._target = target
         log.info("Rephrase requested (%d characters)", target.end - target.start)
@@ -86,6 +93,9 @@ class Rephraser(QObject):
         self, anchor: QRect, bounds: QRect, accent: str, message: str, snapshot: FieldSnapshot
     ) -> None:
         """A one-line message in the card with Close, with nothing sent; it closes when focus leaves snapshot's field."""
+        if self._request is not None:  # a shortcut press during a running rephrase is ignored, as in start()
+            log.debug("Caret message skipped: a rephrase request is already running")
+            return
         self._end(release=False)
         self._message_field = snapshot.field_id
         self._hold(True)

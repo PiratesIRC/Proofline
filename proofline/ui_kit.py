@@ -11,6 +11,7 @@ Style sheets resolve colours once, so call apply_style() again after a theme cha
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -68,6 +69,7 @@ class Tokens:
     warning_text: str
     error_text: str
     off_track: str
+    link: str  # the theme's link colour, used when the accent is too faint on the window
 
 
 LIGHT = Tokens(
@@ -75,16 +77,19 @@ LIGHT = Tokens(
     input_bg="#ffffff", input_border="#d0d0d0", hover="#eaeaea", selected="#e6e6e6", divider="#ededed",
     warning_bg="#fff4ce", warning_border="#f2e2a8", error_bg="#fde7e9", error_border="#f4c2c7",
     success_bg="#dff6dd", success_border="#bfe5bb", success_text="#0f6d1a", warning_text="#a65a00", error_text="#c42b1c",
-    off_track="#5c5c5c",
+    off_track="#5c5c5c", link="#0067c0",
 )
 DARK = Tokens(
     window="#202020", card="#2b2b2b", card_border="#1d1d1d", text="#ffffff", secondary="#c5c5c5",
     input_bg="#2d2d2d", input_border="#3c3c3c", hover="#323232", selected="#2d2d2d", divider="#1d1d1d",
     warning_bg="#433519", warning_border="#5a4a22", error_bg="#442726", error_border="#5c3433",
     success_bg="#393d1b", success_border="#4b5226", success_text="#6ccb5f", warning_text="#ffb454", error_text="#ff99a4",
-    off_track="#c5c5c5",
+    off_track="#c5c5c5", link="#60cdff",
 )
 SEVERITIES = ("warning", "error", "success")
+LINK_MIN_CONTRAST = 4.5  # WCAG AA for normal text
+_OUR_LINK_STYLE = re.compile(r'<a style="color:#[0-9a-fA-F]{6}"(\s)')
+_LINK_COLOUR = re.compile(r'<a style="color:(#[0-9a-fA-F]{6})"')
 
 
 def current_tokens() -> Tokens:
@@ -95,6 +100,50 @@ def current_tokens() -> Tokens:
 def readable_accent(accent: str, tokens: Tokens) -> str:
     """Lighten the accent on dark backgrounds so text and fills on it stay legible."""
     return QColor(accent).lighter(170).name() if tokens is DARK else accent
+
+
+def _linear(srgb: float) -> float:
+    """Undo the sRGB gamma curve for one channel in 0..1 (WCAG definition)."""
+    return srgb / 12.92 if srgb <= 0.03928 else ((srgb + 0.055) / 1.055) ** 2.4
+
+
+def contrast_ratio(first: str, second: str) -> float:
+    """WCAG contrast ratio of two #rrggbb colours, from 1 (none) to 21 (black on white)."""
+    def luminance(colour: str) -> float:
+        c = QColor(colour)
+        red, green, blue = (_linear(value / 255) for value in (c.red(), c.green(), c.blue()))
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+    light, dark = sorted((luminance(first), luminance(second)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def link_colour(accent: str, tokens: Tokens) -> str:
+    """The accent for links when it reads at 4.5:1 or better on both the window and the cards, else the theme link colour."""
+    fill = readable_accent(accent, tokens)
+    if min(contrast_ratio(fill, tokens.window), contrast_ratio(fill, tokens.card)) >= LINK_MIN_CONTRAST:
+        return fill
+    return tokens.link
+
+
+def link_html(html: str, colour: str) -> str:
+    """The rich text with each anchor given an inline colour; any colour set earlier is replaced.
+
+    Qt ignores a QLabel's palette for rich-text links (they stay #0000ff), so the colour has to
+    sit on the anchor itself.
+    """
+    plain = _OUR_LINK_STYLE.sub(r"<a\1", html)
+    return re.sub(r"<a(\s)", lambda match: f'<a style="color:{colour}"{match.group(1)}', plain)
+
+
+def set_link_text(label: QLabel, html: str) -> None:
+    """Replace a link label's rich text, keeping the link colour apply_style gave it.
+
+    A label whose text changes between apply_style calls (a provider or language switch while the
+    window is open) would otherwise show Qt's #0000ff until the window is styled again.
+    """
+    found = _LINK_COLOUR.search(label.text())
+    label.setText(link_html(html, found.group(1)) if found else html)
 
 
 def stylesheet(tokens: Tokens, accent: str) -> str:
@@ -153,15 +202,18 @@ def apply_style(widget: QWidget, accent: str, extra: Callable[[Tokens], str] | N
     widget.setObjectName(widget.objectName() or "uiRoot")
     widget.setStyleSheet("")
     widget.setStyleSheet(stylesheet(tokens, accent) + (extra(tokens) if extra else ""))
-    # Rich-text links take their colour from each label's own palette (the label rule above
-    # gives every label its own), not from the style sheet or the window.
-    link = QColor(readable_accent(accent, tokens))
+    colour = link_colour(accent, tokens)
     for label in widget.findChildren(QLabel):
         if label.openExternalLinks():
+            # Qt paints rich-text links with the anchor's inline colour, not this palette role;
+            # the role is set too so the label's palette names the same colour.
             palette = label.palette()
-            palette.setColor(QPalette.ColorRole.Link, link)
-            palette.setColor(QPalette.ColorRole.LinkVisited, link)
+            palette.setColor(QPalette.ColorRole.Link, QColor(colour))
+            palette.setColor(QPalette.ColorRole.LinkVisited, QColor(colour))
             label.setPalette(palette)
+            html = link_html(label.text(), colour)
+            if html != label.text():
+                label.setText(html)
     for switch in widget.findChildren(ToggleSwitch):
         switch.set_colors(readable_accent(accent, tokens), tokens.off_track)
     return tokens

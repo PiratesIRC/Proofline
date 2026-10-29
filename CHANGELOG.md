@@ -2,6 +2,45 @@
 
 All notable changes to this project.
 
+## 0.4.1 (2026-10-29)
+
+### New
+- **Rewrite for clarity** and **Change tone** (More formal, More casual, Shorter, Friendlier) in the
+  issues popup's **AI ▾** row. The AI's rewrite is listed as separate changes, each applied or
+  skipped like any suggestion; **Accept all AI suggestions** applies them all at once. Your text is
+  never replaced as one block.
+
+### Fixed
+- Links on the Rules page and the AI privacy link keep the accent colour after the language or
+  provider changes while Settings is open.
+- Search boxes are no longer checked: the Start menu and Settings search, and search inputs on
+  web pages and in apps.
+- File Explorer is no longer checked by default (its address bar, search box and rename box).
+  Settings from earlier versions get it added to **Don't check in › Apps** once; remove it there
+  to check File Explorer again.
+- Clicking into a text box no longer shows the grey checking badge before you type. A box that
+  already holds text shows its result when the check finishes.
+- Deleting a word and typing it again no longer leaves the grey checking badge up without a check.
+- `Ctrl+Alt+J` applies the first LanguageTool suggestion only; it no longer applies an AI finding.
+- An AI finding that deletes text offers a remove button instead of "No suggestion".
+- A suggestion containing `&` shows the `&` instead of underlining the next letter.
+- "Asking the AI..." no longer comes back after the request ended or AI was turned off, and no
+  AI message appears under the Undo notice after **Turn off in app**.
+- Clicking the badge while a rewording is on screen no longer opens the issues list beside it.
+- Pressing the AI shortcut again while a rewording is being fetched no longer throws away the
+  first answer (which was still billed); the extra press is ignored.
+- AI requests now stop at their stated time limit (20 seconds, 120 for Ollama and Other) for the
+  whole request, not for each network step.
+- A LanguageTool check that times out (10 seconds) shows the server error at once instead of after
+  three tries (about 32 seconds). Other failures are still tried again quietly.
+- Checking text that has not changed since its last check reuses that result instead of asking
+  the server again.
+- Settings links use your accent colour (or the theme link colour when the accent is too faint to
+  read); they were pure blue.
+- Settings › AI describes both features, keeps saying when a saved Other server key does not belong
+  to the current address, updates the usage line when the spending limit changes, and enables
+  **Test** again after an unexpected error.
+
 ## 0.4.0 (2026-10-26)
 
 ### New

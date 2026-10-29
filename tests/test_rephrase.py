@@ -117,6 +117,26 @@ def test_late_answer_after_cancel_is_ignored(qtbot, make):
     assert option_buttons(r.card) == [] and CANCELLED_BUSY_MESSAGE in visible_label_texts(r.card)
 
 
+def test_second_press_while_running_is_ignored(qtbot, make):
+    r = make({"options": ["He and I go."]})
+    r.rephraser.start(r.target)
+    r.rephraser.start(r.target)  # the shortcut pressed again: nothing new is sent
+    assert CANCELLED_BUSY_MESSAGE not in visible_label_texts(r.card)
+    finish(qtbot, r)
+    assert len(r.backend.sent) == 1
+    assert [option_html(b) for b in option_buttons(r.card)] == ["<b>He</b> and <b>I go.</b>"]
+    assert CANCELLED_BUSY_MESSAGE not in visible_label_texts(r.card)
+
+
+def test_caret_message_during_running_rephrase_is_skipped(qtbot, make):
+    r = make({"options": ["He and I go."]})
+    r.rephraser.start(r.target)
+    _show_caret_message(r)
+    finish(qtbot, r)
+    assert [option_html(b) for b in option_buttons(r.card)] == ["<b>He</b> and <b>I go.</b>"]
+    assert CARET_UNKNOWN_MESSAGE not in visible_label_texts(r.card)
+
+
 def test_no_usable_options_says_so(qtbot, make):
     r = make({"options": ["Me and him goes."]})
     r.rephraser.start(r.target)

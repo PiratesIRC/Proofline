@@ -331,3 +331,45 @@ def test_bad_other_key_address_on_load_falls_back_to_empty(tmp_path):
 def test_repr_redacts_other_key_address():
     text = repr(Config(ai_other_key_address="https://u:secret@h.example/v1"))
     assert "secret" not in text and "h.example" in text
+
+
+def _write(tmp_path, data):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_new_installs_do_not_check_file_explorer():
+    assert "explorer.exe" in Config().disabled_apps
+
+
+def test_older_settings_file_gets_file_explorer_added_once(tmp_path):
+    config = load_config(_write(tmp_path, {"disabled_apps": ["cmd.exe"]}))
+    assert config.disabled_apps == ("cmd.exe", "explorer.exe")
+    assert config.defaults_version == Config().defaults_version
+    save_config(config, tmp_path / "config.json")
+    assert load_config(tmp_path / "config.json").disabled_apps == ("cmd.exe", "explorer.exe")
+
+
+def test_file_explorer_removed_after_the_upgrade_stays_removed(tmp_path):
+    current = Config().defaults_version
+    config = load_config(_write(tmp_path, {"disabled_apps": ["cmd.exe"], "defaults_version": current}))
+    assert config.disabled_apps == ("cmd.exe",)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"disabled_apps": ["EXPLORER.EXE"]},  # already listed, in any case
+        {"disabled_apps": [], "always_check_apps": ["Explorer.exe"]},  # the user chose to check it
+    ],
+)
+def test_upgrade_leaves_file_explorer_as_the_user_set_it(tmp_path, data):
+    config = load_config(_write(tmp_path, data))
+    assert [app for app in config.disabled_apps if app.casefold() == "explorer.exe"] == data["disabled_apps"]
+
+
+@pytest.mark.parametrize("bad", [0, "2", True, 1.5])
+def test_bad_defaults_version_is_rejected(bad):
+    with pytest.raises(ConfigError):
+        save_config(replace(Config(), defaults_version=bad), None)  # validate runs before writing

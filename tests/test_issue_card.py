@@ -10,6 +10,8 @@ from card_helpers import (
 )
 from factories import issue_match, snapshot
 from PyQt6.QtCore import QRect
+from PyQt6.QtGui import QKeySequence
+from PyQt6.QtWidgets import QPushButton
 
 from proofline.ai_jobs import is_ai_match
 from proofline.badge import BadgeState, BadgeWidget
@@ -425,6 +427,21 @@ def test_popup_offers_ai_on_a_clean_field(harness):
     harness.controller.on_checked(harness.snap, ())
     harness.controller._show_popup()
     assert AI_TEXT in link_texts(harness.popup)
+
+
+def test_ai_deletion_card_offers_remove_that_applies_the_empty_text(qtbot, card):
+    deletion = replace(issue_match("are", offset=5), replacements=())
+    card.show_for(deletion, WORD, BOUNDS)
+    button = next(b for b in card.findChildren(QPushButton) if b.text() == "(remove)" and b.isVisible())
+    with qtbot.waitSignal(card.replacement_chosen) as chosen:
+        button.click()
+    assert chosen.args == [deletion, ""]
+
+
+def test_card_fix_button_shows_an_ampersand_without_a_shortcut_underline(card):
+    card.show_for(replace(ARE, replacements=("Tom & Jerry",)), WORD, BOUNDS)
+    button = next(b for b in card.findChildren(QPushButton) if b.text() == "Tom && Jerry")
+    assert QKeySequence.mnemonic(button.text()).isEmpty()
 
 
 def test_card_tooltip_shows_quotes_and_ampersands_as_typed(card):

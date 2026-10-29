@@ -44,11 +44,11 @@ from proofline.settings_pages import (
     _link_label,
     _switch,
 )
-from proofline.ui_kit import SettingCard, set_object_name
+from proofline.ui_kit import SettingCard, set_link_text, set_object_name
 
 CENTS_PER_DOLLAR = 100
 CAP_STEP_DOLLARS = 0.10
-SWITCH_DESCRIPTION = "Rewords a sentence with the AI provider you choose, only when you ask"
+SWITCH_DESCRIPTION = "Rewords a sentence or finds more issues with the AI provider you choose, only when you ask"
 PROVIDER_DESCRIPTION = "Each provider keeps its own key"
 PROVIDER_KEYWORDS = "ai provider " + " ".join(spec.label for spec in PROVIDERS).casefold()
 PROVIDER_GROUP_TEXT = "Provider"
@@ -280,7 +280,8 @@ class AiPage(Page):
         _set_note(self.insecure_label, insecure_text(address))
         _set_note(self.untested_label, "" if spec.tested else UNTESTED_NOTE)
         if spec.privacy_url:
-            self.privacy_link.setText(f'<a href="{spec.privacy_url}">{PRIVACY_LINK_TEXT.format(label=spec.label)}</a>')
+            link = f'<a href="{spec.privacy_url}">{PRIVACY_LINK_TEXT.format(label=spec.label)}</a>'
+            set_link_text(self.privacy_link, link)
         self.privacy_link.setVisible(bool(spec.privacy_url))
 
     def _show_address(self) -> None:
@@ -434,6 +435,12 @@ class AiPage(Page):
         self.test_button.setEnabled(self._key_saved)
         self._sync_address_test()
         self._show_status(message, ok)
+
+    def show_key_warning(self, pid: str, text: str) -> None:
+        """A standing note under the key box, re-derived from the saved state on every refresh, so it survives a
+        restart. Ignored for another provider, and while a Test runs (its "Testing..." line stays)."""
+        if pid == self.current_provider() and not self._testing:
+            self._show_status(text, ok=False)
 
     def _show_status(self, text: str, ok: bool) -> None:
         set_object_name(self.key_status, "statusOk" if ok else "statusError")

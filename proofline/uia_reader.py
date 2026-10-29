@@ -235,6 +235,7 @@ def _traits(control: auto.Control) -> FieldTraits:
         help_text=control.HelpText or "",
         automation_id=control.AutomationId or "",
         has_range_value=control.GetPattern(auto.PatternId.RangeValuePattern) is not None,
+        localized_control_type=control.LocalizedControlType or "",
     )
 
 

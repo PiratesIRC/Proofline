@@ -23,7 +23,7 @@ class AiResult:
     cost: float | None = None
 
 
-@dataclass
+@dataclass(eq=False)  # eq=False keeps object identity for ==, so the instance stays hashable
 class AiError(Exception):
     """A failed request. kind is one of auth, credit, rate_limit, rejected, network, timeout, server,
     refusal, bad_response; token counts are set when the API reported them."""

@@ -28,7 +28,7 @@ from proofline.config import DEFAULT_TRAY_COLOR
 from proofline.dictionary import is_spelling_match
 from proofline.lt_client import Match
 from proofline.non_activating import make_non_activating
-from proofline.overlay_widgets import ADD_WORD_TEXT, replacement_label
+from proofline.overlay_widgets import ADD_WORD_TEXT, button_text, offered_replacements
 from proofline.ui_kit import (
     Tokens,
     apply_style,
@@ -222,8 +222,8 @@ class IssueCard(QWidget):
             message.setTextFormat(Qt.TextFormat.PlainText)
             message.setWordWrap(True)
             self._layout.addWidget(message)
-        for index, replacement in enumerate(match.replacements[:MAX_CARD_FIXES]):
-            button = QPushButton(replacement_label(replacement))
+        for index, replacement in enumerate(offered_replacements(match)[:MAX_CARD_FIXES]):
+            button = QPushButton(button_text(replacement))
             button.setObjectName("cardFirstFix" if index == 0 else "cardFix")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             # Rich text so the escaped quotes and ampersands display as typed (plain text would show &quot;).

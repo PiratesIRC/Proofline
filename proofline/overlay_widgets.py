@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 from proofline.ai_jobs import is_ai_match
+from proofline.ai_rewrite import CLARITY, STYLE_BY_ID, TONE_STYLES
 from proofline.config import DEFAULT_TRAY_COLOR
 from proofline.dictionary import is_spelling_match
 from proofline.hidden_chars import codepoint_label, is_hidden_match
@@ -60,6 +61,8 @@ REMOVE_TEXT = "(remove)"
 NO_ISSUES_TEXT = "No issues found."
 AI_TEXT = "AI \u25be"
 FIND_MORE_TEXT = "Find more issues"
+CHANGE_TONE_TEXT = "Change tone \u25b8"
+ACCEPT_ALL_TEXT = "Accept all AI suggestions"
 AI_CANCEL_TEXT = "Cancel"
 AI_RETRY_TEXT = "Retry"
 DRAG_TOOLTIP = "Drag to move. A moved popup stays open until you close it."
@@ -97,6 +100,19 @@ def replacement_label(replacement: str) -> str:
     return replacement
 
 
+def button_text(replacement: str) -> str:
+    """Text for a fix button: '&' is doubled so Qt shows it instead of making a shortcut underline."""
+    return replacement_label(replacement).replace("&", "&&")
+
+
+def offered_replacements(match: Match) -> tuple[str, ...]:
+    """The fixes a row offers. An AI deletion has no replacement text (ai_jobs drops the empty one),
+    so it is offered as the empty replacement, which the buttons show as Remove."""
+    if not match.replacements and is_ai_match(match):
+        return ("",)
+    return match.replacements
+
+
 def match_excerpt(text: str, match: Match, context: int = EXCERPT_CONTEXT_CHARS) -> tuple[str, str, str] | None:
     """(before, flagged, after) around the match, whitespace collapsed, cut at word edges.
 
@@ -125,6 +141,8 @@ class IssuesPopup(QWidget):
     settings_requested = pyqtSignal()
     undo_requested = pyqtSignal(str, str)  # config field, value to remove
     find_more_requested = pyqtSignal()  # the AI row's Find more issues
+    rewrite_requested = pyqtSignal(str)  # Rewrite for clarity or a Change tone preset: an ai_rewrite style id
+    accept_all_requested = pyqtSignal()  # apply every AI suggestion that has a fix
     ai_cancel_requested = pyqtSignal()
     ai_retry_requested = pyqtSignal()
     shown = pyqtSignal()  # the popup became visible (AI status is shown again then)
@@ -193,7 +211,7 @@ class IssuesPopup(QWidget):
         close_button.setCursor(Qt.CursorShape.PointingHandCursor)
         close_button.clicked.connect(self.hide)
         self._ai_button = link_button(AI_TEXT)
-        self._ai_button.clicked.connect(lambda: self._set_ai_row_open(self._ai_row.isHidden()))
+        self._ai_button.clicked.connect(lambda: self._set_ai_row_open(self._ai_box.isHidden()))
         self._ai_button.hide()
         row = QHBoxLayout()
         row.addWidget(self._header)
@@ -204,15 +222,39 @@ class IssuesPopup(QWidget):
 
     def _build_ai_row(self) -> QWidget:
         """The AI actions, opened from the header link (inline: a QMenu would take the click back to the field)."""
+        self._ai_box = QWidget()  # the action row and, when opened, the tone presets under it
         self._ai_row = QWidget()
         row = QHBoxLayout(self._ai_row)
         row.setContentsMargins(12, 0, 0, 0)
         find = link_button(FIND_MORE_TEXT)
         find.clicked.connect(self._on_find_more)
         row.addWidget(find)
+        clarity = link_button(STYLE_BY_ID[CLARITY].label)
+        clarity.clicked.connect(lambda: self._on_rewrite(CLARITY))
+        row.addWidget(clarity)
+        tone = link_button(CHANGE_TONE_TEXT)
+        tone.clicked.connect(lambda: self._set_tone_row_open(self._tone_row.isHidden()))
+        row.addWidget(tone)
         row.addStretch()
-        self._ai_row.hide()
-        return self._ai_row
+        rows = QVBoxLayout(self._ai_box)
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.addWidget(self._ai_row)
+        rows.addWidget(self._build_tone_row())
+        self._ai_box.hide()
+        return self._ai_box
+
+    def _build_tone_row(self) -> QWidget:
+        """The four Change tone presets, under the AI row."""
+        self._tone_row = QWidget()
+        row = QHBoxLayout(self._tone_row)
+        row.setContentsMargins(24, 0, 0, 0)
+        for style in TONE_STYLES:
+            preset = link_button(style.label)
+            preset.clicked.connect(lambda _checked=False, style_id=style.id: self._on_rewrite(style_id))
+            row.addWidget(preset)
+        row.addStretch()
+        self._tone_row.hide()
+        return self._tone_row
 
     def _build_ai_status(self) -> QWidget:
         self._ai_status = QWidget()
@@ -296,7 +338,7 @@ class IssuesPopup(QWidget):
         self._ai_available = ai_available
         self._ai_button.setVisible(ai_available)
         if not ai_available:
-            self._ai_row.hide()
+            self._ai_box.hide()
         self._notice_timer.stop()
         restyled = self._apply_style()  # the theme or accent may have changed since the last time
         self._disable_app_button.setText(f"Turn off in {app_name}")
@@ -321,6 +363,8 @@ class IssuesPopup(QWidget):
 
     def show_ai_status(self, message: str, cancel: bool = False, retry: bool = False) -> None:
         """One line about the running or finished AI request, with Cancel and/or Retry."""
+        if self._header.isHidden():  # the Undo notice is showing: no AI line under it
+            return
         self._ai_status_label.setText(message)
         self._ai_cancel.setVisible(cancel)
         self._ai_retry.setVisible(retry)
@@ -335,17 +379,27 @@ class IssuesPopup(QWidget):
 
     def _hide_ai_parts(self) -> None:
         self._ai_button.hide()
-        self._ai_row.hide()
+        self._ai_box.hide()
         self._ai_status.hide()
 
     def _set_ai_row_open(self, open_: bool) -> None:
-        self._ai_row.setVisible(open_ and self._ai_available)
+        self._ai_box.setVisible(open_ and self._ai_available)
+        self._tone_row.hide()
+        if self.isVisible():
+            self._refit()
+
+    def _set_tone_row_open(self, open_: bool) -> None:
+        self._tone_row.setVisible(open_)
         if self.isVisible():
             self._refit()
 
     def _on_find_more(self) -> None:
         self._set_ai_row_open(False)
         self.find_more_requested.emit()
+
+    def _on_rewrite(self, style_id: str) -> None:
+        self._set_ai_row_open(False)
+        self.rewrite_requested.emit(style_id)
 
     def show_notice_only(self, message: str, field: str, value: str) -> None:
         """Replace the issues with just the notice; the popup closes itself after a while."""
@@ -400,7 +454,7 @@ class IssuesPopup(QWidget):
         self._undo = None
         self._notice.hide()
         self._set_more_open(False)
-        self._ai_row.hide()
+        self._ai_box.hide()
         self._ai_status.hide()  # IssueFinder shows its status again when the popup reopens
 
     def _apply_style(self) -> bool:
@@ -459,12 +513,25 @@ class IssuesPopup(QWidget):
                 item.widget().deleteLater()
         if not matches:
             self._add_row(QLabel(NO_ISSUES_TEXT))
+        if sum(1 for match in matches if is_ai_match(match) and offered_replacements(match)) >= 2:
+            self._add_row(self._accept_all_row())
         for index, match in enumerate(matches[:MAX_LISTED_MATCHES]):
             self._add_row(self._match_row(match, first=index == 0))
         if len(matches) > MAX_LISTED_MATCHES:
             hidden = len(matches) - MAX_LISTED_MATCHES
             self._add_row(QLabel(f"…and {hidden} more. Fix these first."))
         self._list_layout.addStretch()
+
+    def _accept_all_row(self) -> QWidget:
+        """Accept all AI suggestions, left-aligned above the rows (a bare link would be centred)."""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        accept_all = link_button(ACCEPT_ALL_TEXT)
+        accept_all.clicked.connect(self.accept_all_requested.emit)
+        layout.addWidget(accept_all)
+        layout.addStretch()
+        return row
 
     def _add_row(self, row: QWidget) -> None:
         self._list_layout.addWidget(row)
@@ -510,15 +577,15 @@ class IssuesPopup(QWidget):
         grid = QGridLayout()
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(6)
-        for index, replacement in enumerate(match.replacements):
-            button = QPushButton(replacement_label(replacement))
+        for index, replacement in enumerate(offered_replacements(match)):
+            button = QPushButton(button_text(replacement))
             button.setObjectName("accentButton")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(
                 lambda _checked=False, m=match, r=replacement: self.replacement_chosen.emit(m, r)
             )
             grid.addWidget(button, index // FIXES_PER_ROW, index % FIXES_PER_ROW)
-        if not match.replacements:
+        if not offered_replacements(match):
             hint = QLabel("No suggestion")
             hint.setObjectName("cardDescription")
             grid.addWidget(hint, 0, 0)

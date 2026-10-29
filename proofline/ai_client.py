@@ -12,7 +12,13 @@ import json
 import logging
 from typing import Any
 
-from proofline.ai_http import error_for, make_client, message
+from proofline.ai_http import (
+    DeadlineExceeded,
+    error_for,
+    make_client,
+    message,
+    run_within,
+)
 from proofline.ai_types import AiBackend, AiError, AiRequest, AiResult  # noqa: F401
 
 log = logging.getLogger(__name__)
@@ -47,21 +53,28 @@ class AnthropicBackend:
 
     def send(self, request: AiRequest, model: str) -> AiResult:
         try:
+            error = None
             try:
-                response = self._client.messages.create(
-                    model=model,
-                    max_tokens=request.max_tokens,
-                    system=request.system,
-                    messages=[{"role": "user", "content": request.text}],
-                    output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": request.schema}},
-                )
+                # The SDK's timeout bounds each connect and read; run_within adds the total limit.
+                response = run_within(lambda: self._create(request, model), TIMEOUT_SECONDS)
+            except DeadlineExceeded:
+                error = AiError("timeout", TIMEOUT_MESSAGE)
             except self._anthropic.APIError as exc:
                 error = self._error_for(exc)  # the SDK exception holds the request; it is not kept
-            else:
+            if error is None:
                 return result_from(response)
             raise error from None  # raised outside the except block, so no context is attached
         finally:
             self._http.close()
+
+    def _create(self, request: AiRequest, model: str) -> Any:
+        return self._client.messages.create(
+            model=model,
+            max_tokens=request.max_tokens,
+            system=request.system,
+            messages=[{"role": "user", "content": request.text}],
+            output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": request.schema}},
+        )
 
     def _error_for(self, exc: Exception) -> AiError:
         a = self._anthropic

@@ -350,7 +350,7 @@ def test_privacy_link_is_its_own_link_label_so_it_takes_the_accent(page):
 def test_switch_describes_only_what_ships():
     from proofline.ai_settings_page import SWITCH_DESCRIPTION
 
-    assert SWITCH_DESCRIPTION == "Rewords a sentence with the AI provider you choose, only when you ask"
+    assert SWITCH_DESCRIPTION == "Rewords a sentence or finds more issues with the AI provider you choose, only when you ask"
     assert "Claude" not in SWITCH_DESCRIPTION
 
 

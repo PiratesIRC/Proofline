@@ -97,8 +97,9 @@ def preview(text: str, limit: int = PREVIEW_CHARS) -> str:
 class TypingDebouncer:
     """Report a field's text once it has stayed unchanged for `delay_s` seconds.
 
-    Each distinct text is reported at most once per field, so an idle field is not
-    re-checked on every poll.
+    A text is reported once while it stays in the field, so an idle field is not
+    re-checked on every poll. After an edit, even back to a text already reported, it is
+    reported again: the overlay drops its results on every change and waits for a new check.
     """
 
     def __init__(self, delay_s: float) -> None:
@@ -121,6 +122,7 @@ class TypingDebouncer:
         if snapshot.text != self._text:
             self._text = snapshot.text
             self._changed_at = now
+            self._reported_text = None
             return None
         if snapshot.text == self._reported_text or now - self._changed_at < self._delay_s:
             return None

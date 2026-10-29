@@ -18,11 +18,12 @@ from proofline.ai_setup import (
     KEY_REMOVE_FAILED_MESSAGE,
     KEY_WORKS_MESSAGE,
     PASTE_FIRST_MESSAGE,
+    TEST_ERROR_MESSAGE,
     AiSetup,
     key_test_request,
 )
 from proofline.ai_usage import read_entries
-from proofline.config import Config
+from proofline.config import Config, load_config, save_config
 
 
 class Keys:
@@ -198,6 +199,53 @@ def test_showing_the_page_refreshes_the_usage_line(make):
     rig.page.usage_label.setText("")
     rig.page.show()
     assert rig.page.usage_label.text().startswith("Today $0.0000")
+
+
+def test_changing_the_spending_limit_updates_the_usage_line_without_reloading_the_page(make):
+    rig = make()
+    assert "of $1.00" in rig.page.usage_label.text()  # the default limit, 100 cents
+    previous = rig.state["config"]
+    rig.state["config"] = replace(previous, ai_monthly_cap_cents=300)  # saved, but the page is not reloaded
+    rig.setup.config_changed(previous)
+    assert "of $3.00" in rig.page.usage_label.text()
+
+
+def test_other_key_saved_for_no_address_is_still_flagged_after_a_restart(make):
+    config = Config(ai_enabled=True, ai_provider="other", ai_other_url=A_ADDRESS, ai_models=("other=local-model",))
+    rig = make(config=config, keys=Keys())
+    rig.keys.keys["other"] = "k1"  # saved while an earlier address was in use: not bound to A_ADDRESS
+    rig.setup.refresh()  # what a fresh start shows: the page loads the saved state
+    assert rig.page.key_status.text() == RESAVE_KEY_TEXT
+
+
+def test_other_key_whose_address_could_not_be_recorded_is_flagged(make):
+    config = Config(ai_enabled=True, ai_provider="other", ai_other_url=A_ADDRESS, ai_models=("other=local-model",))
+    rig = make(config=config, keys=Keys())
+    rig.page.changed.disconnect()  # the settings save fails: no change is recorded in the config
+    rig.page.key_box.setText("k1")
+    rig.page.save_button.click()
+    assert rig.keys.keys == {"other": "k1"}
+    assert rig.state["config"].ai_other_key_address == ""
+    assert rig.page.key_status.text() == RESAVE_KEY_TEXT
+
+
+def test_other_key_binding_is_written_to_config_and_read_back_after_a_restart(tmp_path):
+    path = tmp_path / "config.json"
+    saved = Config(ai_other_url=A_ADDRESS, ai_other_key_address=A_ADDRESS)
+    save_config(saved, path)
+    restored = load_config(path)
+    assert restored.ai_other_key_address == A_ADDRESS
+    assert restored.other_key_applies()
+
+
+def test_test_button_is_enabled_again_when_the_key_store_cannot_be_read(make):
+    rig = make(key="sk-ant-saved")
+    assert rig.page.test_button.isEnabled()
+    rig.keys.read_error = RuntimeError("Credential Manager is busy")  # an error the page does not expect
+    rig.page.test_button.click()
+    assert rig.page.test_button.isEnabled()
+    assert rig.page.key_status.text() == TEST_ERROR_MESSAGE
+    assert rig.page._test_pid is None
 
 
 def test_save_and_remove_refresh_ai_availability(make):

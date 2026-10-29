@@ -1,9 +1,18 @@
 import logging
+import threading
 
 import httpx2
 import pytest
 
-from proofline.ai_http import error_for, get_json, make_client, message, post_json
+from proofline.ai_http import (
+    DeadlineExceeded,
+    error_for,
+    get_json,
+    make_client,
+    message,
+    post_json,
+    run_within,
+)
 from proofline.ai_types import AiError
 from proofline.logging_setup import set_debug_mode, setup_logging
 
@@ -21,8 +30,8 @@ def answer(status, body=None, *, text=None):
     return handler
 
 
-def send(handler, *, key_sent=True, **kwargs):
-    client = make_client(20, httpx2.MockTransport(handler))
+def send(handler, *, key_sent=True, timeout=20, **kwargs):
+    client = make_client(timeout, httpx2.MockTransport(handler))
     headers = {"Authorization": f"Bearer {SECRET_KEY}"}
     return post_json(client, URL, headers, {"text": SECRET_TEXT}, "Groq", key_sent, **kwargs)
 
@@ -234,3 +243,66 @@ def test_post_json_passes_the_400_key_rule_through():
     with pytest.raises(AiError) as caught:
         send(handler)
     assert caught.value.kind == "rejected"
+
+
+def test_run_within_returns_the_result_in_time():
+    assert run_within(lambda: 42, 5) == 42
+
+
+def test_run_within_reraises_the_call_exception_unchanged():
+    error = httpx2.ConnectError("refused")
+
+    def call():
+        raise error
+
+    with pytest.raises(httpx2.ConnectError) as caught:
+        run_within(call, 5)
+    assert caught.value is error
+
+
+def test_run_within_gives_up_at_the_deadline():
+    release = threading.Event()
+    try:
+        with pytest.raises(DeadlineExceeded):
+            run_within(lambda: release.wait(5), 0.05)
+    finally:
+        release.set()
+
+
+def test_slow_answer_is_a_timeout_at_the_total_deadline():
+    release = threading.Event()
+
+    def handler(request):
+        release.wait(5)  # the server never answers within the limit
+        return httpx2.Response(200, json={"ok": True})
+
+    try:
+        with pytest.raises(AiError) as caught:
+            send(handler, timeout=0.05)
+    finally:
+        release.set()
+    assert caught.value.kind == "timeout"
+    assert caught.value.message == "Groq took longer than 0.05 seconds. Try again."
+
+
+def test_slow_drip_of_the_body_is_cut_off_at_the_total_deadline():
+    release = threading.Event()
+
+    def body():
+        yield b'{"ok": '  # the first bytes arrive, then the server stalls
+        release.wait(5)
+        yield b"true}"
+
+    def handler(request):
+        return httpx2.Response(200, content=body())
+
+    try:
+        with pytest.raises(AiError) as caught:
+            send(handler, timeout=0.05)
+    finally:
+        release.set()
+    assert caught.value.kind == "timeout"
+
+
+def test_fast_answer_within_the_deadline_is_unaffected():
+    assert send(answer(200, {"ok": True}), timeout=5) == {"ok": True}
