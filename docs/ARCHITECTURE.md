@@ -117,7 +117,9 @@ window still have focus and the text at the offset still equals the flagged text
 range by character offset, falls back to finding the n-th occurrence, then waits up to 500 ms for
 the selection to read back exactly (Chromium applies `Select()` asynchronously). Only then does
 it paste. `clipboard.py` backs up every memory-based clipboard format, marks temporary content as
-excluded from clipboard history, sends Ctrl+V and restores the backup.
+excluded from clipboard history, sends Ctrl+V and restores the backup. Each clipboard open is
+owned by a hidden message-only window that is destroyed when the clipboard closes; opening with
+no window lost the clipboard after a write about once in 30 opens.
 
 **Non-activating overlays.** The badge and popup are frameless tool windows with
 `WS_EX_NOACTIVATE`, so clicking them never takes focus from the field being corrected.

@@ -2,7 +2,7 @@ from dataclasses import replace
 from unittest.mock import MagicMock
 
 import pytest
-from factories import snapshot
+from factories import issue_match, snapshot
 from PyQt6.QtCore import QRect
 
 from proofline.ai_service import AiService
@@ -10,6 +10,7 @@ from proofline.app import LanguageToolApp
 from proofline.config import Config, load_config, save_config
 from proofline.health import NOTICE_MIN_GAP_S, OutageNotices
 from proofline.rephrase import CARET_UNKNOWN_MESSAGE
+from proofline.replace_request import ReplaceRequest
 from proofline.tray import TrayIcon, make_icon
 
 
@@ -340,6 +341,16 @@ def test_applied_rephrase_counts_as_an_ai_rephrase_not_a_correction(app):
     app._usage.on_correction_applied.assert_not_called()
     app._on_replace_finished(True, "")  # then the ordinary one
     app._usage.on_correction_applied.assert_called_once()
+
+
+def test_applied_ai_finding_counts_as_an_ai_rephrase(app):
+    # Find more, Rewrite for clarity, Change tone and Accept all reach the app as AI requests.
+    snap = snapshot()
+    ai_request = ReplaceRequest.build(snap, issue_match(snap.text[:4], 0), "Fix")
+    app._on_replace_requested(ai_request)
+    app._on_replace_finished(True, "")
+    app._usage.on_ai_rephrase_applied.assert_called_once()
+    app._usage.on_correction_applied.assert_not_called()
 
 
 def test_failed_rephrase_counts_nothing(app):

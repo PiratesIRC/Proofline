@@ -9,7 +9,8 @@ the next report ask the server to delete this install's figures.
 The ledger gets one line per correction actually applied. Checks, ignored issues and
 corrections that fail verification are not counted. AI Rephrases is a second count under its
 own Worker key (the Worker allows one counter per key), with its own ledger and install id: one
-line per AI rewording actually pasted. No text is ever sent.
+line per AI change actually pasted (a Rephrase rewording, or any fix built from an AI finding:
+Find more, Rewrite for clarity, Change tone, Accept all). No text is ever sent.
 """
 
 from __future__ import annotations

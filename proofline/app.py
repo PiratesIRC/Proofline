@@ -295,7 +295,7 @@ class LanguageToolApp(QObject):
         self._overlay.request_replace(request)
 
     def _on_replace_requested(self, request: ReplaceRequest) -> None:
-        self._replace_kinds.append(request is self._rephrase_to_send)
+        self._replace_kinds.append(request is self._rephrase_to_send or getattr(request, "from_ai", False))
         self._rephrase_to_send = None
         self._monitor.request_replace(request)
 

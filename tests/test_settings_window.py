@@ -247,6 +247,7 @@ def test_stale_connection_result_is_discarded(qtbot, window, monkeypatch):
     assert "Ready" not in status_text(window)
 
 
+@pytest.mark.clipboard
 def test_advanced_copy_report_and_clear_logs(window, monkeypatch):
     window.advanced.copy_report()
     assert QGuiApplication.clipboard().text().startswith("Proofline diagnostic report")

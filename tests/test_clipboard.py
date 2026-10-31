@@ -7,6 +7,8 @@ import win32con
 from proofline import clipboard
 from proofline.clipboard import backup_clipboard, paste_text, restore_clipboard
 
+pytestmark = pytest.mark.clipboard
+
 CUSTOM_FORMAT_NAME = "ProoflineTestFormat"
 
 
@@ -50,6 +52,14 @@ def test_paste_puts_correction_on_clipboard_during_keystroke_then_restores():
     paste_text("is", send_keys=lambda: seen_during_paste.append(read_clipboard()[0]))
     assert seen_during_paste == ["is"]
     assert read_clipboard() == ("user data", b"keep me")
+
+
+def test_open_keeps_the_clipboard_after_repeated_writes():
+    # With no owner window (OpenClipboard(None)), about 1 open in 30 lost the clipboard right
+    # after a write ("Thread does not have a clipboard open", error 1418); measured 2026-10-31.
+    for i in range(200):
+        set_clipboard(f"round {i}")
+        assert read_clipboard()[0] == f"round {i}"
 
 
 def test_paste_restores_clipboard_even_if_keystroke_fails():

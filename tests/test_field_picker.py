@@ -88,6 +88,7 @@ def test_dialog_ignores_own_window_and_enables_right_buttons(qtbot, dialog):
     assert not dialog._add_field_button.isEnabled()
 
 
+@pytest.mark.clipboard
 def test_dialog_copy_details(dialog):
     dialog.on_captured(captured("read-only"))
     dialog._copy_button.click()

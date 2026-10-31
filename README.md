@@ -393,10 +393,11 @@ verified the text box and pasted the fix. Checks, ignored issues and corrections
 (for example because the text changed) count nothing. The same word fixed twice counts twice, so
 the figure measures fixes made, not distinct words.
 
-AI Rephrases counts the AI rewordings you chose that the app then pasted into the text box,
-under the same rules: a request you cancelled, a rewording you did not pick, or one the app
-refused to paste counts nothing. An applied rewording counts here and not under Corrections
-Applied. It is reported the same way as Corrections Applied, under its own name
+AI Rephrases counts the AI changes that the app pasted into the text box: a rewording from AI
+Rephrase, a fix from Find more issues, a change from Rewrite for clarity or Change tone, and one
+for each use of Accept all. The same rules apply: a request you cancelled, a suggestion you did
+not pick, or one the app refused to paste counts nothing. An applied AI change counts here and
+not under Corrections Applied. It is reported the same way as Corrections Applied, under its own name
 (`proofline-ai`) with its own random id, and the same setting turns both off.
 
 While the app runs, it sends its Corrections Applied total and a random id for this install to the

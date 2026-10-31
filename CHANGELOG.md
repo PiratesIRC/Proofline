@@ -2,6 +2,16 @@
 
 All notable changes to this project.
 
+## 0.4.2 (2026-10-31)
+
+### Fixed
+- Applying a correction could fail now and then with "Thread does not have a clipboard open", or
+  leave the clipboard unrestored. Proofline now opens the clipboard with a hidden window of its
+  own instead of none.
+- AI changes applied from the issues popup (Find more issues, Rewrite for clarity, Change tone,
+  Accept all) now count toward the AI Rephrases badge. They were counted as Corrections Applied,
+  so the AI Rephrases badge only moved when someone used AI Rephrase.
+
 ## 0.4.1 (2026-10-29)
 
 ### New

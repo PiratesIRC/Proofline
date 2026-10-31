@@ -17,6 +17,7 @@ import pywintypes
 import win32api
 import win32clipboard
 import win32con
+import win32gui
 
 log = logging.getLogger(__name__)
 
@@ -54,21 +55,39 @@ class ClipboardError(Exception):
 
 
 @contextmanager
-def _open_clipboard() -> Iterator[None]:
-    last_error: Exception | None = None
-    for _ in range(OPEN_RETRIES):
-        try:
-            win32clipboard.OpenClipboard(None)
-            break
-        except pywintypes.error as exc:  # another app is holding the clipboard
-            last_error = exc
-            time.sleep(OPEN_RETRY_DELAY_S)
-    else:
-        raise ClipboardError(f"The clipboard is busy: {last_error}")
+def _owner_window() -> Iterator[int]:
+    """A hidden message-only window that owns the clipboard for one open, then is destroyed.
+
+    Opening with no window (OpenClipboard(None)) lost the clipboard right after a write in
+    about 1 open in 30 on 2026-10-31 (error 1418); with an owner window it never did. The
+    window does not outlive the open: the monitor thread pumps no messages, and Windows
+    sends the clipboard owner WM_DESTROYCLIPBOARD whenever another app copies.
+    """
+    hwnd = win32gui.CreateWindow("STATIC", "Proofline clipboard", 0, 0, 0, 0, 0,
+                                 win32con.HWND_MESSAGE, 0, 0, None)
     try:
-        yield
+        yield hwnd
     finally:
-        win32clipboard.CloseClipboard()
+        win32gui.DestroyWindow(hwnd)
+
+
+@contextmanager
+def _open_clipboard() -> Iterator[None]:
+    with _owner_window() as owner:
+        last_error: Exception | None = None
+        for _ in range(OPEN_RETRIES):
+            try:
+                win32clipboard.OpenClipboard(owner)
+                break
+            except pywintypes.error as exc:  # another app is holding the clipboard
+                last_error = exc
+                time.sleep(OPEN_RETRY_DELAY_S)
+        else:
+            raise ClipboardError(f"The clipboard is busy: {last_error}")
+        try:
+            yield
+        finally:
+            win32clipboard.CloseClipboard()
 
 
 def backup_clipboard() -> ClipboardBackup:
