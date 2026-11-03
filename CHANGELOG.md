@@ -13,8 +13,8 @@ All notable changes to this project.
     date.
   - Code-entry fields labelled *Enter code*, *Secure code* or *Enter time-based code*.
 - An Outlook reply was skipped as a "sensitive field" when the email subject contained a word
-  such as *password*, because Outlook names the message body after the subject. Label rules no
-  longer apply to document controls.
+  such as *password*, because Outlook names the message body after the subject. The label rules
+  now ignore a document's name; its help text, automation ID and class are still checked.
 
 ### Changed
 - LastPass for Desktop is on the recommended list of apps to skip; it is added once to existing

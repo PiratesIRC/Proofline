@@ -93,8 +93,9 @@ fields (*user name*, *user ID*, *login ID* or *email* in the label, help text, a
 class; *email body*, *email message* and similar are still checked), or fields whose label,
 placeholder or automation ID mentions one-time, verification or entry codes (*Enter code*,
 *Secure code*), card numbers, CVV, SSN, PIN, routing or account numbers, IBAN, API/secret keys or
-tokens. The label rules do not apply to documents such as an Outlook message body, whose name
-is the message subject: a reply to an email titled "Password changes" is still checked. A
+tokens. For a document, such as an Outlook message body, the label rules ignore its name,
+which is the message subject, and still use its help text, automation ID and class: a reply to
+an email titled "Password changes" is still checked. A
 `custom_fields` entry overrides these filters except for passwords.
 
 ### Example
