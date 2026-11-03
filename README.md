@@ -369,7 +369,8 @@ The app talks to LanguageTool's HTTP API (`POST /v2/check`).
   address you set), as described in that section.
 - Password fields are never read. By default the app also skips password managers, terminals,
   remote desktop and VM windows, code and spreadsheet editors, File Explorer, browser address
-  bars, search boxes, numeric fields, fields labelled like one-time codes, card numbers, SSNs, PINs, API keys or tokens, and
+  bars, search boxes, dropdowns, numeric fields and fields holding only numbers, user name and
+  email fields, fields labelled like one-time codes, card numbers, SSNs, PINs, API keys or tokens, and
   windows whose title contains *Password*, *Sign in*, *Log in*, *Login* or *Windows Security*.
 - Logs never contain what you type unless you turn on **Debug mode** (Settings › Advanced) or set
   `PROOFLINE_LOG_TEXT=1`. Window titles are logged.

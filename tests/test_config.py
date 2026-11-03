@@ -344,11 +344,18 @@ def test_new_installs_do_not_check_file_explorer():
 
 
 def test_older_settings_file_gets_file_explorer_added_once(tmp_path):
+    expected = ("cmd.exe", "explorer.exe", "LastPass for Desktop.exe")
     config = load_config(_write(tmp_path, {"disabled_apps": ["cmd.exe"]}))
-    assert config.disabled_apps == ("cmd.exe", "explorer.exe")
+    assert config.disabled_apps == expected
     assert config.defaults_version == Config().defaults_version
     save_config(config, tmp_path / "config.json")
-    assert load_config(tmp_path / "config.json").disabled_apps == ("cmd.exe", "explorer.exe")
+    assert load_config(tmp_path / "config.json").disabled_apps == expected
+
+
+def test_version_2_settings_file_gets_lastpass_added(tmp_path):
+    config = load_config(_write(tmp_path, {"disabled_apps": ["cmd.exe"], "defaults_version": 2}))
+    assert config.disabled_apps == ("cmd.exe", "LastPass for Desktop.exe")
+    assert "LastPass for Desktop.exe" in Config().disabled_apps
 
 
 def test_file_explorer_removed_after_the_upgrade_stays_removed(tmp_path):

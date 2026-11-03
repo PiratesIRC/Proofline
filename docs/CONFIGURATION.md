@@ -85,12 +85,17 @@ unless it is already listed or in `always_check_apps`; if you remove it afterwar
 ### Built-in field filters (not configurable)
 
 Independently of the lists above, the app never checks password fields, read-only fields,
-dropdowns without editable text, browser address bars, search boxes (the word *search* in the
-field's label, help text or type, or a *Search* part in its automation ID or class), numeric/spinner
-fields, or fields whose
-label, placeholder or automation ID mentions one-time/verification codes, card numbers, CVV,
-SSN, PIN, routing or account numbers, IBAN, API/secret keys or tokens. A `custom_fields` entry
-overrides these filters except for passwords.
+dropdowns (combo boxes, including ones you can type into, such as the Outlook reminder snooze
+box), browser address bars, search boxes (the word *search* in the field's label, help text or
+type, or a *Search* part in its automation ID or class), numeric/spinner fields, fields whose text
+has digits and no letters (IP addresses, amounts, dates, phone numbers), user name and email
+fields (*user name*, *user ID*, *login ID* or *email* in the label, help text, automation ID or
+class; *email body*, *email message* and similar are still checked), or fields whose label,
+placeholder or automation ID mentions one-time, verification or entry codes (*Enter code*,
+*Secure code*), card numbers, CVV, SSN, PIN, routing or account numbers, IBAN, API/secret keys or
+tokens. The label rules do not apply to documents such as an Outlook message body, whose name
+is the message subject: a reply to an email titled "Password changes" is still checked. A
+`custom_fields` entry overrides these filters except for passwords.
 
 ### Example
 

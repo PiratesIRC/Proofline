@@ -32,7 +32,10 @@ INSTRUCTIONS = (
 )
 WAITING = "Waiting for you to click into a text box…"
 IGNORED_REASONS = frozenset({"focus is in this app", "no focused element", "checking paused"})
-FILTER_REASON_PREFIXES = ("not a text control", "address bar", "numeric field", "sensitive field")
+FILTER_REASON_PREFIXES = (
+    "not a text control", "address bar", "dropdown (combo box)", "search field", "numeric field", "account field",
+    "sensitive field",
+)
 NO_TEXT_PATTERNS = "none"
 DETAILS_HEIGHT = 130
 DETAILS_CLOSED = "Technical details ▾"

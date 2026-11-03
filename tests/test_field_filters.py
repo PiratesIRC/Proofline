@@ -5,6 +5,7 @@ from proofline.field_filters import (
     SENSITIVE_PATTERN,
     FieldTraits,
     skip_reason,
+    text_skip_reason,
 )
 
 
@@ -137,7 +138,9 @@ def test_reason_phrase_is_lower_cased():
         "Spinning class notes",
         "Pinned notes",
         "tokenize this",
-        "Email or Mobile Number",
+        "Email message",
+        "E-mail text",
+        "Mobile Number notes",
     ],
 )
 def test_ordinary_labels_are_not_flagged(name):
@@ -199,3 +202,105 @@ def test_words_containing_search_are_not_search_fields(overrides):
 
 def test_address_bar_wins_over_search():
     assert skip_reason(traits(class_name="OmniboxViewViews", name="Address and search bar")) == "address bar"
+
+
+# The cases below are fields measured in a user's log on 2026-11-03 that were checked but
+# should not have been.
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"class_name": "REComboBox20W", "name": "Click Snooze to be reminded in:"},  # Outlook reminders
+        {"control_type": "ComboBoxControl", "class_name": "ms-TextField-field field-1773", "name": "Date"},
+        {"control_type": "ComboBoxControl", "class_name": "chakra-combobox__input", "name": "Folder"},
+    ],
+)
+def test_dropdowns_are_skipped(overrides):
+    assert skip_reason(traits(**overrides)) == "dropdown (combo box)"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "phrase"),
+    [
+        ({"name": "User name"}, "user name"),
+        ({"name": "username"}, "username"),
+        ({"name": "Username"}, "username"),
+        ({"name": "Enter your email address"}, "email"),
+        ({"name": "Email address *"}, "email"),
+        ({"name": "Enter your email, phone, or Skype."}, "email"),
+        ({"name": "Add another email address"}, "email"),
+        ({"name": "LogMeIn ID:", "class_name": "form-control inset ls-spr email"}, "email"),
+        ({"class_name": "form-control form-control-email svelte-o"}, "email"),
+        ({"automation_id": "loginId"}, "loginid"),
+        ({"name": "E-mail"}, "e-mail"),
+        ({"name": "Email or Mobile Number"}, "email"),  # a sign-in label; "Mobile Number" is not sensitive
+    ],
+)
+def test_user_name_and_email_fields_are_skipped(overrides, phrase):
+    assert skip_reason(traits(**overrides)) == f"account field ({phrase})"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Your name", "Display name", "Name of the item", "Emailing tips", "Users", "Project Lead Name"],
+)
+def test_names_that_are_not_sign_in_fields_are_checked(name):
+    assert skip_reason(traits(name=name)) == ""
+
+
+@pytest.mark.parametrize(
+    ("name", "phrase"),
+    [
+        ("Enter code", "enter code"),
+        ("Secure Code", "secure code"),
+        ("Enter time-based code", "time-based code"),
+    ],
+)
+def test_code_entry_fields_are_skipped(name, phrase):
+    assert skip_reason(traits(name=name)) == f"sensitive field ({phrase})"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "RE: Password changes for the shared drive - Message",  # an Outlook reply, named after its subject
+        "Search results for the audit",
+        "Your email still goes to the old address",
+    ],
+)
+def test_document_names_are_not_field_labels(name):
+    assert skip_reason(traits(control_type="DocumentControl", class_name="_WwG", name=name)) == ""
+
+
+def test_document_controls_still_skip_numeric_and_address_bar_rules():
+    assert skip_reason(traits(control_type="DocumentControl", has_range_value=True)) == "numeric field"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["127.0.0.1", "$142.00", "755.26", "10/31/2026", "(555) 555-0100", "  42  ", "1."],
+)
+def test_text_of_only_numbers_is_skipped(text):
+    assert text_skip_reason(text) == "numeric field (numbers only)"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "   ", "Room 42", "B14", "...", "Thanks for reaching out", "1. Order the parts"],
+)
+def test_text_with_letters_or_no_digits_is_checked(text):
+    assert text_skip_reason(text) == ""
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"automation_id": "password-box"}, "sensitive field (password)"),
+        ({"help_text": "Enter your PIN"}, "sensitive field (pin)"),
+        ({"automation_id": "txtSearch"}, "search field"),
+        ({"class_name": "username-doc"}, "account field (username)"),
+    ],
+)
+def test_document_controls_still_use_help_text_id_and_class(overrides, reason):
+    assert skip_reason(traits(control_type="DocumentControl", name="Ordinary title", **overrides)) == reason

@@ -21,6 +21,7 @@ from proofline.app_names import process_path
 from proofline.config import custom_field_matches, field_signature
 from proofline.field_filters import FieldTraits
 from proofline.field_filters import skip_reason as field_skip_reason
+from proofline.field_filters import text_skip_reason as field_text_skip_reason
 from proofline.setup_hints import hint_for
 from proofline.text_snapshot import FieldSnapshot, FocusResult, ScreenRect
 
@@ -190,6 +191,9 @@ def _snapshot(
         return FocusResult(focus_key, description, reason)
 
     text = _read_text(text_pattern, value_pattern, control.NativeWindowHandle)
+    reason = "" if is_custom else field_text_skip_reason(text)
+    if reason:
+        return FocusResult(focus_key, description, reason)
     caret_rect, caret_source = find_caret(control, text_pattern)
     bounds = control.BoundingRectangle
     snapshot = FieldSnapshot(

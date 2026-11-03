@@ -132,6 +132,7 @@ DEFAULT_DISABLED_APPS = (
     "KeePassXC.exe",
     "1Password.exe",
     "Bitwarden.exe",
+    "LastPass for Desktop.exe",
     # Terminals and shells
     "WindowsTerminal.exe",
     "cmd.exe",
@@ -153,7 +154,7 @@ DEFAULT_DISABLED_APPS = (
 )
 # Apps added to the recommended list after the first release, by the defaults_version that added
 # them. Loading an older settings file adds them once, unless the user set the app to always check.
-ADDED_DISABLED_APPS = {2: ("explorer.exe",)}
+ADDED_DISABLED_APPS = {2: ("explorer.exe",), 3: ("LastPass for Desktop.exe",)}
 DEFAULTS_VERSION = max(ADDED_DISABLED_APPS)
 LEGACY_DEFAULTS_VERSION = 1  # a settings file without the key predates the added apps
 DEFAULT_DISABLED_WINDOWS = (

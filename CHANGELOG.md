@@ -2,6 +2,24 @@
 
 All notable changes to this project.
 
+## 0.4.3 (2026-11-03)
+
+### Fixed
+- The badge no longer appears in fields that are not prose:
+  - User name and email sign-in fields (a label, ID or class with *user name*, *username*,
+    *user ID*, *login ID* or *email*). Fields such as *Email body* are still checked.
+  - Dropdowns you can type into, such as the Outlook reminder snooze box and web pickers.
+  - Fields whose text is only numbers and punctuation, such as an IP address, an amount or a
+    date.
+  - Code-entry fields labelled *Enter code*, *Secure code* or *Enter time-based code*.
+- An Outlook reply was skipped as a "sensitive field" when the email subject contained a word
+  such as *password*, because Outlook names the message body after the subject. Label rules no
+  longer apply to document controls.
+
+### Changed
+- LastPass for Desktop is on the recommended list of apps to skip; it is added once to existing
+  settings.
+
 ## 0.4.2 (2026-10-31)
 
 ### Fixed
