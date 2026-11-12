@@ -7,7 +7,8 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
-`requirements.txt` holds the runtime dependencies (PyQt6, uiautomation, pywin32, requests);
+`requirements.txt` holds the runtime dependencies (PyQt6, uiautomation, pywin32, requests,
+anthropic for Claude, httpx2 for the other AI providers);
 `requirements-dev.txt` adds pytest, pytest-qt, pytest-cov and ruff; `requirements-build.txt`
 adds PyInstaller for the packaged build (see [Releasing](#releasing-a-build-for-colleagues)).
 
@@ -39,8 +40,9 @@ $env:LT_TEST_SERVER_URL = "http://127.0.0.1:8010/v2"; .\.venv\Scripts\python.exe
   `HKCU\Software\ProoflineTest`, deleted afterwards. They never modify the real Run key.
 - **Hotkey tests** register an unlikely combination (`ctrl+alt+shift+f24`) and simulate
   `WM_HOTKEY`.
-- The UIA reader and correction code are exercised live (see `proofline/probe.py`) rather than
-  unit-tested; their pure helpers are unit-tested. Coverage of `QThread.run` code isn't reported
+- The UIA reader (`uia_reader.py`) is exercised live (see `proofline/probe.py`) and has no unit
+  tests. The correction code (`text_replace.py`, `clipboard.py`) is tested with fakes for its
+  checks and failure paths, and the clipboard round trip uses the real clipboard. Coverage of `QThread.run` code isn't reported
   by coverage.py even though it is tested.
 - `tests/factories.py` builds `FieldSnapshot` / `FocusResult` test data.
 
@@ -76,13 +78,21 @@ $env:LT_TEST_SERVER_URL = "http://127.0.0.1:8010/v2"; .\.venv\Scripts\python.exe
 ## Building and releasing
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-build.txt   # once: PyInstaller
+.\.venv\Scripts\python.exe -m pip install --require-hashes -r requirements-lock.txt   # the locked versions
 winget install --id JRSoftware.InnoSetup -e --scope user               # once: Inno Setup 6
 powershell -File packaging\build.ps1                                   # in its own process
 ```
 
+`requirements-lock.txt` pins every runtime and build package (PyInstaller included) to an exact
+version with its hashes. `build.ps1` first runs `scripts/check_lock.py` and refuses to build when
+`.venv` has another version of any locked package; `tests/test_lock_file.py` fails in that case
+too. The lock in a release's tagged commit records what that release was built with. To update a
+dependency on purpose: install the new version, run the full test suite, regenerate the lock with
+the `uv pip compile` command in its header, and commit the lock with the change.
+
 `build.ps1` runs PyInstaller (`packaging/Proofline.spec`, a one-folder windowed build in
-`dist\Proofline\`) and then makes the two release files:
+`dist\Proofline\`) and then makes the two release files and `dist\SHA256SUMS.txt` (their
+sha256, checked and uploaded by `scripts/gh_release.py create`):
 
 - `dist\Proofline-<version>-portable.zip`: the app folder plus `portable.txt`, which makes the app
   keep its settings in `data\` next to the exe (`config.app_data_dir`).

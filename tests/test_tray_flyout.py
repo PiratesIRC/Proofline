@@ -410,3 +410,14 @@ def test_tiles_are_tall_enough_for_two_lines(flyout):
 
 def test_quit_is_a_plain_link(flyout):
     assert _button(flyout, "Quit").objectName() == "linkButton"
+
+
+def test_checking_tooltip_names_the_saved_toggle_shortcut(flyout):
+    flyout.set_state(replace(BASE, toggle_hotkey="ctrl+shift+f9"))
+    assert "CTRL+SHIFT+F9" in flyout._checking_tile.toolTip()
+    assert "Ctrl+Alt+P" not in flyout._checking_tile.toolTip()
+
+
+def test_checking_tooltip_names_no_shortcut_when_it_is_off(flyout):
+    flyout.set_state(replace(BASE, toggle_hotkey=""))
+    assert "+" not in flyout._checking_tile.toolTip()

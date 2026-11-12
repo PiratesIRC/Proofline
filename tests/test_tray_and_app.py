@@ -369,3 +369,25 @@ def test_find_more_issues_is_wired(qapp, tmp_path):
                              ai=AiService(Config, lambda spec, key, address: None, lambda pid: None, tmp_path / "ai_usage.jsonl"))
     overlay.find_more_requested.connect.assert_any_call(lt_app._finder.start)
     monitor.field_changed.connect.assert_any_call(lt_app._finder.on_field_changed)
+
+
+def test_recovery_after_an_outage_checks_the_field_again(app):
+    app._on_server_unhealthy("Could not connect")
+    app._on_server_healthy()
+    app._monitor.request_check_now.assert_called_once()
+
+
+def test_a_healthy_report_without_an_outage_requests_no_check(app):
+    app._on_server_healthy()
+    app._monitor.request_check_now.assert_not_called()
+
+
+def test_turning_off_a_window_does_not_log_its_title_without_text_logging(app, monkeypatch, caplog):
+    from proofline.logging_setup import LOG_TEXT_ENV, set_debug_mode
+
+    set_debug_mode(False)
+    monkeypatch.delenv(LOG_TEXT_ENV, raising=False)
+    monkeypatch.delenv("LT_DESKTOP_LOG_TEXT", raising=False)
+    caplog.set_level("INFO")
+    app._disable_window("Quarterly Secret Plan - Word")
+    assert "Quarterly Secret Plan" not in caplog.text

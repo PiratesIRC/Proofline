@@ -10,7 +10,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from proofline.ai_prices import ModelPrice, dearest, most_expensive
-from proofline.ai_providers import ProviderSpec
+from proofline.ai_providers import OPENROUTER_ID, ProviderSpec
 from proofline.ai_usage import TokenTotals, Totals
 from proofline.config import LOOPBACK_HOSTS, is_insecure_remote
 
@@ -89,7 +89,7 @@ def privacy_text(spec: ProviderSpec, address: str, model: str = "") -> str:
     if spec.id == "other":
         return OTHER_PRIVACY
     line = CLOUD_PRIVACY.format(label=spec.label)
-    if spec.id == "openrouter":
+    if spec.id == OPENROUTER_ID:
         line += " " + OPENROUTER_REFRESH.format(label=spec.label)
     return line
 
@@ -109,7 +109,7 @@ def estimated_price_text(spec: ProviderSpec, live_prices: tuple[ModelPrice, ...]
 
     OpenRouter has no fixed table, so its most expensive model comes from live_prices (the fetched list).
     """
-    priciest = dearest(live_prices) if spec.id == "openrouter" else most_expensive(spec.id)
+    priciest = dearest(live_prices) if spec.id == OPENROUTER_ID else most_expensive(spec.id)
     return f"Cost estimated at {priciest.label}'s price" if priciest else ""
 
 

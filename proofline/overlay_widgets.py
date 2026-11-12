@@ -18,8 +18,8 @@ import html
 import logging
 import re
 
-from PyQt6.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QHideEvent, QMouseEvent, QShowEvent
+from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, pyqtBoundSignal, pyqtSignal
+from PyQt6.QtGui import QEnterEvent, QHideEvent, QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 
 from proofline.ai_jobs import is_ai_match
 from proofline.ai_rewrite import CLARITY, STYLE_BY_ID, TONE_STYLES
+from proofline.combined_fix import first_suggestions
 from proofline.config import DEFAULT_TRAY_COLOR
 from proofline.dictionary import is_spelling_match
 from proofline.hidden_chars import codepoint_label, is_hidden_match
@@ -63,6 +64,7 @@ AI_TEXT = "AI \u25be"
 FIND_MORE_TEXT = "Find more issues"
 CHANGE_TONE_TEXT = "Change tone \u25b8"
 ACCEPT_ALL_TEXT = "Accept all AI suggestions"
+MIN_BULK_FIXES = 2  # Fix all and Accept all show from this many fixes
 AI_CANCEL_TEXT = "Cancel"
 AI_RETRY_TEXT = "Retry"
 DRAG_TOOLTIP = "Drag to move. A moved popup stays open until you close it."
@@ -89,6 +91,10 @@ def issue_count_text(count: int) -> str:
     if count == 0:
         return "No issues"
     return f"{count} issue" + ("" if count == 1 else "s")
+
+
+def fix_all_text(count: int) -> str:
+    return f"Fix all {count} issues"
 
 
 def replacement_label(replacement: str) -> str:
@@ -143,6 +149,7 @@ class IssuesPopup(QWidget):
     find_more_requested = pyqtSignal()  # the AI row's Find more issues
     rewrite_requested = pyqtSignal(str)  # Rewrite for clarity or a Change tone preset: an ai_rewrite style id
     accept_all_requested = pyqtSignal()  # apply every AI suggestion that has a fix
+    fix_all_requested = pyqtSignal()  # apply the first suggestion of every LanguageTool issue
     ai_cancel_requested = pyqtSignal()
     ai_retry_requested = pyqtSignal()
     shown = pyqtSignal()  # the popup became visible (AI status is shown again then)
@@ -442,6 +449,15 @@ class IssuesPopup(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self._press_offset = None
 
+    def enterEvent(self, event: QEnterEvent) -> None:
+        super().enterEvent(event)
+        self._notice_timer.stop()  # the Undo notice stays while the mouse is on it
+
+    def leaveEvent(self, event: QEvent) -> None:
+        super().leaveEvent(event)
+        if self.is_notice_only and not self.is_pinned:
+            self._notice_timer.start(NOTICE_ONLY_MS)
+
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self.shown.emit()
@@ -513,8 +529,14 @@ class IssuesPopup(QWidget):
                 item.widget().deleteLater()
         if not matches:
             self._add_row(QLabel(NO_ISSUES_TEXT))
-        if sum(1 for match in matches if is_ai_match(match) and offered_replacements(match)) >= 2:
-            self._add_row(self._accept_all_row())
+        bulk = []
+        fixable = len(first_suggestions(matches))
+        if fixable >= MIN_BULK_FIXES:
+            bulk.append((fix_all_text(fixable), self.fix_all_requested))
+        if sum(1 for match in matches if is_ai_match(match) and offered_replacements(match)) >= MIN_BULK_FIXES:
+            bulk.append((ACCEPT_ALL_TEXT, self.accept_all_requested))
+        if bulk:
+            self._add_row(self._bulk_row(bulk))
         for index, match in enumerate(matches[:MAX_LISTED_MATCHES]):
             self._add_row(self._match_row(match, first=index == 0))
         if len(matches) > MAX_LISTED_MATCHES:
@@ -522,14 +544,16 @@ class IssuesPopup(QWidget):
             self._add_row(QLabel(f"…and {hidden} more. Fix these first."))
         self._list_layout.addStretch()
 
-    def _accept_all_row(self) -> QWidget:
-        """Accept all AI suggestions, left-aligned above the rows (a bare link would be centred)."""
+    def _bulk_row(self, links: list[tuple[str, pyqtBoundSignal]]) -> QWidget:
+        """Fix all and Accept all, left-aligned above the rows (a bare link would be centred)."""
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
-        accept_all = link_button(ACCEPT_ALL_TEXT)
-        accept_all.clicked.connect(self.accept_all_requested.emit)
-        layout.addWidget(accept_all)
+        layout.setSpacing(14)
+        for label, signal in links:
+            button = link_button(label)
+            button.clicked.connect(lambda _checked=False, s=signal: s.emit())
+            layout.addWidget(button)
         layout.addStretch()
         return row
 

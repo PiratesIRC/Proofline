@@ -24,6 +24,8 @@ log = logging.getLogger(__name__)
 OPEN_RETRIES = 10
 OPEN_RETRY_DELAY_S = 0.02
 PASTE_SETTLE_S = 0.3  # time the target app needs to read the clipboard after Ctrl+V
+RESTORE_ATTEMPTS = 3  # each attempt already retries the open OPEN_RETRIES times
+RESTORE_RETRY_S = 0.2
 VK_CONTROL = 0x11
 VK_V = 0x56
 VK_DELETE = 0x2E
@@ -140,15 +142,36 @@ def send_delete() -> None:
     win32api.keybd_event(VK_DELETE, 0, win32con.KEYEVENTF_KEYUP, 0)
 
 
+def _put_text(text: str) -> None:
+    try:
+        with _open_clipboard():
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+            _exclude_from_history()
+    except pywintypes.error as exc:
+        raise ClipboardError(f"The correction could not be put on the clipboard: {exc}") from exc
+
+
 def paste_text(text: str, send_keys: Callable[[], None] = send_ctrl_v) -> None:
     """Replace the target app's selection with `text`, leaving the clipboard as it was."""
     backup = backup_clipboard()
-    with _open_clipboard():
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
-        _exclude_from_history()
     try:
+        _put_text(text)  # empties the clipboard first, so a failure here must still restore it
         send_keys()
         time.sleep(PASTE_SETTLE_S)
     finally:
-        restore_clipboard(backup)
+        _restore_with_retries(backup)
+
+
+def _restore_with_retries(backup: ClipboardBackup) -> None:
+    """Put the user's clipboard back. A failure is logged, not raised: by now the correction was
+    pasted (or an earlier error is already on its way out), so it must not be reported as failed."""
+    for attempt in range(1, RESTORE_ATTEMPTS + 1):
+        try:
+            restore_clipboard(backup)
+            return
+        except (ClipboardError, pywintypes.error) as exc:
+            log.debug("Clipboard restore attempt %d failed: %s", attempt, exc)
+            time.sleep(RESTORE_RETRY_S)
+    log.warning("Could not restore the clipboard after %d attempts; it still holds the correction",
+                RESTORE_ATTEMPTS)

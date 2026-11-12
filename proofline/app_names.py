@@ -39,8 +39,13 @@ def display_name(process_id: int, process_name: str) -> str:
     return file_description(path) or process_name
 
 
-@lru_cache(maxsize=256)
 def process_path(pid: int) -> str:
+    """The program file of a running process, or '' when Windows will not say.
+
+    Not cached: Windows reuses process ids, and a remembered path would name the earlier
+    program (the "apps not checked" list would then match the wrong one). The lookup is one
+    OpenProcess and one QueryFullProcessImageNameW.
+    """
     handle = _kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return ""

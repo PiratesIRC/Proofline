@@ -380,3 +380,79 @@ def test_upgrade_leaves_file_explorer_as_the_user_set_it(tmp_path, data):
 def test_bad_defaults_version_is_rejected(bad):
     with pytest.raises(ConfigError):
         save_config(replace(Config(), defaults_version=bad), None)  # validate runs before writing
+
+
+def test_one_bad_value_keeps_the_other_settings(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"debounce_ms": "fast", "language": "de-DE",
+                                "personal_dictionary": ["Proofline", "Kubernetes"],
+                                "disabled_apps": ["keepass.exe"]}), encoding="utf-8")
+    config = load_config(path)
+    assert config.debounce_ms == Config().debounce_ms
+    assert config.language == "de-DE"
+    assert config.personal_dictionary == ("Proofline", "Kubernetes")
+    assert "keepass.exe" in config.disabled_apps
+
+
+def test_a_bad_list_keeps_the_other_lists(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"disabled_rules": [""], "personal_dictionary": ["Proofline"]}),
+                    encoding="utf-8")
+    config = load_config(path)
+    assert config.disabled_rules == ()
+    assert config.personal_dictionary == ("Proofline",)
+
+
+@pytest.mark.parametrize("content", ["not json", "[1, 2]", json.dumps({"debounce_ms": "fast"})])
+def test_a_file_that_failed_to_load_is_copied_to_bak(tmp_path, content):
+    path = tmp_path / "config.json"
+    path.write_text(content, encoding="utf-8")
+    load_config(path)
+    assert (tmp_path / "config.json.bak").read_text(encoding="utf-8") == content
+
+
+def test_a_good_file_makes_no_bak(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"language": "de-DE"}), encoding="utf-8")
+    load_config(path)
+    assert not (tmp_path / "config.json.bak").exists()
+
+
+def test_save_flushes_to_disk_before_the_rename(tmp_path, monkeypatch):
+    import os
+
+    synced = []
+    real_fsync = os.fsync
+    monkeypatch.setattr(os, "fsync", lambda fd: (synced.append(fd), real_fsync(fd)))
+    save_config(Config(), tmp_path / "config.json")
+    assert synced
+
+
+@pytest.fixture
+def text_logging(monkeypatch):
+    """Returns a switch for text logging (Debug mode off; PROOFLINE_LOG_TEXT set or not)."""
+    from proofline.logging_setup import LOG_TEXT_ENV, set_debug_mode
+
+    set_debug_mode(False)
+
+    def switch(on: bool) -> None:
+        if on:
+            monkeypatch.setenv(LOG_TEXT_ENV, "1")
+        else:
+            monkeypatch.delenv(LOG_TEXT_ENV, raising=False)
+            monkeypatch.delenv("LT_DESKTOP_LOG_TEXT", raising=False)
+
+    return switch
+
+
+def test_repr_shows_list_settings_as_counts_without_text_logging(text_logging):
+    text_logging(False)
+    text = repr(Config(personal_dictionary=("Zorblax", "Quuxly"), disabled_windows=("Private Title",)))
+    assert "Zorblax" not in text and "Private Title" not in text
+    assert "personal_dictionary=<2 items>" in text
+    assert "disabled_windows=<1 item>" in text
+
+
+def test_repr_shows_list_settings_in_full_with_text_logging(text_logging):
+    text_logging(True)
+    assert "Zorblax" in repr(Config(personal_dictionary=("Zorblax",)))

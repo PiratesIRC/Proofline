@@ -146,8 +146,11 @@ class SettingsWindow(QWidget):
             self.refresh_style()
             config = self._config_provider()
             for page in self.pages:
-                if page is not self.general or self.general.url_text == config.server_url:
-                    page.load(config)
+                if page is self.general and self.general.url_text != config.server_url:
+                    continue  # a half-typed server address waits for Save
+                if page is self.shortcuts and self.shortcuts.has_unapplied_edits(config):
+                    continue  # typed shortcuts wait for Apply
+                page.load(config)
 
     def apply_changes(self, changes: dict) -> bool:
         try:

@@ -36,7 +36,7 @@ from proofline.ai_prices import (
     most_expensive,
     price_for,
 )
-from proofline.ai_providers import ProviderSpec, provider
+from proofline.ai_providers import OPENROUTER_ID, ProviderSpec, provider
 from proofline.ai_usage import (
     LEDGER_PATH,
     TokenTotals,
@@ -66,7 +66,6 @@ FAILED_MESSAGE = "The AI request failed."
 # sent, maybe billed, no token counts back (a bad_response without counts is billed the same way)
 UNKNOWN_OUTCOME_KINDS = ("timeout", "network", "server", "bad_response")
 CENTS_PER_DOLLAR = 100
-OPENROUTER_ID = "openrouter"  # its price list is fetched at runtime (set_live_prices)
 REPORTED_COST_FACTOR = 10  # a reported cost above this many times the worst case at list price is not believed
 
 
@@ -264,7 +263,11 @@ class AiService(QObject):
     def _on_done(self, attempt: _Attempt, result: AiResult) -> None:
         self._busy = False
         self._key_rejected.pop(attempt.spec.id, None)
-        self._record(attempt, result.input_tokens, result.output_tokens, estimated=False, reported=result.cost)
+        if _counts_missing(attempt, result):  # a priced answer with no token counts: assume the worst case
+            request = attempt.request
+            self._record(attempt, estimate_input_tokens(request.text), request.max_tokens, estimated=True)
+        else:
+            self._record(attempt, result.input_tokens, result.output_tokens, estimated=False, reported=result.cost)
         self.finished.emit(attempt.request, result)
 
     def _on_error(self, attempt: _Attempt, exc: Exception) -> None:
@@ -354,6 +357,14 @@ class _Attempt:
     address: str
     price: ModelPrice | None  # resolved when the request was sent: what it is charged at
     number: int = 1
+
+
+def _counts_missing(attempt: _Attempt, result: AiResult) -> bool:
+    """True when a priced provider answered without token counts or a trusted reported cost. Recording
+    that as 0 tokens would cost $0 and not count toward the monthly limit."""
+    if attempt.price is None or result.input_tokens or result.output_tokens:
+        return False
+    return result.cost is None or not _trusted_cost(attempt, result.cost)
 
 
 def _trusted_shape(spec: ProviderSpec, reported: float) -> bool:

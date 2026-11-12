@@ -15,6 +15,7 @@ DEFAULT_PROVIDER = "anthropic"
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 LOCAL_TIMEOUT_SECONDS = 120.0  # a local model can be slow on first use
 CLOUD_TIMEOUT_SECONDS = 20.0
+OPENROUTER_ID = "openrouter"  # the one provider whose prices are fetched live and whose cost is reported
 KEY_SUFFIX = "api-key"
 MODEL_NAME_PATTERN = re.compile(r"[A-Za-z0-9._:/-]{1,200}")
 ADDRESS_SCHEMES = ("http", "https")
@@ -63,7 +64,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
                  "max_completion_tokens", (("reasoning_effort", "low"),), False, True, False,
                  "console.groq.com", "https://console.groq.com/docs/legal/services-agreement"),
     # priced=True means the spending limit applies, using live prices from OpenRouter's model list.
-    ProviderSpec("openrouter", "OpenRouter", "openai", "https://openrouter.ai/api/v1", "required", "schema",
+    ProviderSpec(OPENROUTER_ID, "OpenRouter", "openai", "https://openrouter.ai/api/v1", "required", "schema",
                  "max_tokens",
                  (("provider", {"require_parameters": True, "data_collection": "deny"}),),
                  False, True, False, "openrouter.ai", "https://openrouter.ai/privacy"),

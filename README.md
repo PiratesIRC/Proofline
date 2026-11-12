@@ -101,7 +101,9 @@ Download one of these from [Releases](https://github.com/PiratesIRC/Proofline/re
 
 > [!TIP]
 > The exe is not code-signed, so Windows SmartScreen may say it is unrecognised. Choose
-> **More info** › **Run anyway** if you trust the download.
+> **More info** › **Run anyway** if you trust the download. To check that a file is the one
+> published, compare its hash with the line for it in `SHA256SUMS.txt` on the release page:
+> `Get-FileHash Proofline-<version>-setup.exe` in PowerShell (releases from 0.4.4 on).
 
 To update, run the new installer (it replaces the old version), or quit the portable copy and
 replace its folder, keeping `data`. A portable copy that has no settings of its own yet copies
@@ -177,6 +179,9 @@ Click the badge to open the issues popup:
 
 - Each issue shows the flagged words highlighted in their sentence. Click a suggestion button to
   replace them.
+- **Fix all N issues** at the top of the list (shown when two or more issues have a suggestion)
+  applies the first suggestion of every LanguageTool issue in one step. AI findings are left for
+  **Accept all AI suggestions**.
 - **Ignore for now** hides that issue for this session; **Add to dictionary** (spelling only)
   stops a word being flagged; **Turn off this rule** disables a LanguageTool rule.
 - **More options** › **Turn off in <app>** / **Turn off in this window** stop checking there.
@@ -213,7 +218,10 @@ you click or press its shortcut. The default provider is Claude, Anthropic's AI 
 
 1. Choose a provider in **Settings › AI**. Each provider needs your own API key from its website
    (paste it, click **Save**, then **Test**), or, for Ollama and Other, a server address.
-   The key is kept in Windows Credential Manager, not in the settings file.
+   The key is kept in Windows Credential Manager, not in the settings file. Uninstalling
+   Proofline leaves it there, as it leaves your settings; remove a key with **Remove** in
+   Settings › AI before uninstalling, or later in Credential Manager › Windows Credentials,
+   where each is named `Proofline/<provider>-api-key`.
 2. Turn on **Use AI suggestions**.
 3. Choose a model. The cloud providers have a short built-in list, cheapest first, and the
    default is the cheapest; Ollama, Other and OpenRouter list the models their server offers.
@@ -330,7 +338,7 @@ Settings save as soon as you change them, except the server address (**Save**) a
 | Checking | Typing pause, minimum words, Picky mode, hidden characters, personal dictionary, turned-off rules (by name) and categories (checkboxes) |
 | Apps & fields | Add a text field, apps (pick a running app) and window titles to skip, apps to always check, custom fields |
 | Appearance | Theme (follow Windows / light / dark), accent and tray colour, badge visibility, underlines |
-| Shortcuts | Three global shortcuts, recorded by pressing the keys |
+| Shortcuts | Four global shortcuts (pause or resume, check now, apply the first suggestion, AI Rephrase; the last is off by default), recorded by pressing the keys |
 | AI | Use AI suggestions (on or off), the provider, its API key (Save, Test) or server address, the model with its prices, the monthly spending limit (cloud providers), and today's and this month's usage totals |
 | Advanced | Debug mode, diagnostic report and logs, check for updates (with Check now), share anonymous usage counts, version, Help and Releases links |
 
@@ -373,7 +381,8 @@ The app talks to LanguageTool's HTTP API (`POST /v2/check`).
   email fields, fields labelled like one-time codes, card numbers, SSNs, PINs, API keys or tokens, and
   windows whose title contains *Password*, *Sign in*, *Log in*, *Login* or *Windows Security*.
 - Logs never contain what you type unless you turn on **Debug mode** (Settings › Advanced) or set
-  `PROOFLINE_LOG_TEXT=1`. Window titles are logged.
+  `PROOFLINE_LOG_TEXT=1`. The same switch controls window titles and the words in your personal
+  dictionary and other lists: without it the log shows only their length or count.
 - Corrections use the clipboard briefly; your clipboard contents are restored and the correction
   is kept out of Windows clipboard history (Win+V).
 - Settings and logs live in `%LOCALAPPDATA%\Proofline` (outside OneDrive), or in the portable
@@ -391,8 +400,9 @@ The Corrections Applied and Active Installs badges count every install that leav
 anonymous usage counts" setting (on by default, Settings › Advanced) ticked. Corrections Applied
 counts the suggestions you applied from the issues popup or with `Ctrl+Alt+J`, after the app
 verified the text box and pasted the fix. Checks, ignored issues and corrections the app refused
-(for example because the text changed) count nothing. The same word fixed twice counts twice, so
-the figure measures fixes made, not distinct words.
+(for example because the text changed) count nothing. The same word fixed twice counts twice.
+**Fix all N issues** pastes all of them as one change and counts one, as Accept all does for AI
+Rephrases, so the figure counts changes pasted, not individual words.
 
 AI Rephrases counts the AI changes that the app pasted into the text box: a rewording from AI
 Rephrase, a fix from Find more issues, a change from Rewrite for clarity or Change tone, and one

@@ -40,7 +40,7 @@ from proofline.config import (
     rule_label,
 )
 from proofline.diagnostics import build_report, clear_logs
-from proofline.hotkeys import HotkeyError, parse_hotkey
+from proofline.hotkeys import HotkeyError, display_hotkey, parse_hotkey
 from proofline.list_editor import StringListEditor
 from proofline.server_test import ServerStatus, StatusLevel, run_server_test
 from proofline.settings_widgets import (
@@ -93,9 +93,9 @@ UPDATES_DESCRIPTION = "Asks GitHub once a day whether a newer Proofline release 
 UPDATES_OFF_TEXT = "Update checks are off"
 CHECKING_UPDATES_TEXT = "Checking for updates…"
 SHARE_USAGE_DESCRIPTION = (
-    "Sends the number of corrections you applied and a random id for this install to the author's "
-    "counter at plugin-stats.dpas.workers.dev, at most once an hour, for the Active Installs and "
-    "Corrections Applied badges. No text you type is sent. Turning this off deletes this install's "
+    "Sends the number of corrections and AI changes you applied, with random ids for this install, "
+    "to the author's counter at plugin-stats.dpas.workers.dev, at most once an hour, for the Active "
+    "Installs, Corrections Applied and AI Rephrases badges. No text you type is sent. Turning this off deletes this install's "
     "figures from the server."
 )
 ATTRIBUTION_TEXT = (
@@ -291,8 +291,9 @@ class CheckingPage(Page):
 
         self._group("When to check")
         self._card(SettingCard("Check after I stop typing for", "", self._delay, keywords="delay pause debounce"))
-        self._card(SettingCard("Only check text with at least", "Ctrl+Alt+L checks any text right away",
-                               self._min_words, keywords="minimum words length"))
+        self._min_words_card = SettingCard("Only check text with at least", "", self._min_words,
+                                           keywords="minimum words length")
+        self._card(self._min_words_card)
         self._group("Suggestions")
         self._card(SettingCard("Picky mode", "Also suggest style and punctuation improvements",
                                self._picky, keywords="strict style"))
@@ -315,6 +316,9 @@ class CheckingPage(Page):
     def _load(self, config: Config) -> None:
         _set_combo_data(self._delay, config.debounce_ms, _seconds(config.debounce_ms))
         self._min_words.setValue(config.min_words)
+        shortcut = config.hotkey_check_now
+        self._min_words_card.set_description(
+            f"{display_hotkey(shortcut)} checks any text right away" if shortcut else "")
         self._picky.setChecked(config.picky)
         self._hidden.setChecked(config.flag_hidden_characters)
         self._words.set_items(config.personal_dictionary)
@@ -423,6 +427,7 @@ class ShortcutsPage(Page):
     def __init__(self) -> None:
         super().__init__()
         self._edits: dict[str, HotkeyRecorder] = {}
+        self._loaded: dict[str, str] = {}  # the shortcuts as last loaded, to tell typed edits apart
         for field, label in HOTKEY_FIELDS:
             edit = HotkeyRecorder()
             edit.setMinimumWidth(COMBO_WIDTH)
@@ -441,7 +446,14 @@ class ShortcutsPage(Page):
     def _load(self, config: Config) -> None:
         for field, edit in self._edits.items():
             edit.set_hotkey(getattr(config, field))
+            self._loaded[field] = edit.hotkey()
         self.error_bar.hide()
+
+    def has_unapplied_edits(self, config: Config) -> bool:
+        """True when a box holds keys that were typed but not applied: different from what was
+        loaded and from config (after Apply, the boxes equal the saved config)."""
+        return any(edit.hotkey() not in (self._loaded.get(field), getattr(config, field))
+                   for field, edit in self._edits.items())
 
     def apply_shortcuts(self) -> None:
         try:

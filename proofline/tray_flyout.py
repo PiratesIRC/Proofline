@@ -25,7 +25,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from proofline.config import DEFAULT_TRAY_COLOR, LANGUAGES
+from proofline.config import DEFAULT_HOTKEY_TOGGLE, DEFAULT_TRAY_COLOR, LANGUAGES
+from proofline.hotkeys import display_hotkey
 from proofline.ui_kit import (
     DARK,
     apply_style,
@@ -48,7 +49,8 @@ EDGE_MARGIN = 12
 BADGE_TEXT = "P"
 APP_TITLE = "Proofline"
 CHECKING_TILE_TITLE = "Checking"
-CHECKING_TOOLTIP = "Turn checking on or off, or pause it. Ctrl+Alt+P turns it on or off."
+CHECKING_TOOLTIP = "Turn checking on or off, or pause it."
+CHECKING_SHORTCUT_TOOLTIP = CHECKING_TOOLTIP + " {} turns it on or off."
 PICKY_TILE_TITLE = "Picky mode"
 PICKY_SUBTITLE = "Extra style tips"
 LANGUAGE_TILE_TITLE = "Language"
@@ -89,6 +91,11 @@ class FlyoutState:
     current_app_status: str = ""
     current_app_disabled: bool = False
     accent: str = DEFAULT_TRAY_COLOR
+    toggle_hotkey: str = DEFAULT_HOTKEY_TOGGLE  # named in the Checking tile's tooltip; "" when off
+
+
+def checking_tooltip(toggle_hotkey: str) -> str:
+    return CHECKING_SHORTCUT_TOOLTIP.format(display_hotkey(toggle_hotkey)) if toggle_hotkey else CHECKING_TOOLTIP
 
 
 INITIAL_STATE = FlyoutState(enabled=True, picky=False, language="auto")
@@ -197,6 +204,7 @@ class TrayFlyout(QWidget):
         self._sync_language(state.language)
         self._sync_header(state)
         self._sync_app_card(state)
+        self._checking_tile.setToolTip(checking_tooltip(state.toggle_hotkey))
 
     def show_at(self, icon_rect: QRect, available: QRect) -> None:
         """Show the flyout next to the tray icon, restyled for the current theme."""
@@ -254,7 +262,6 @@ class TrayFlyout(QWidget):
     def _build_tiles(self) -> QGridLayout:
         # Checkable only for the filled "on" look; a click opens the menu instead of toggling.
         self._checking_tile = self._make_tile(checkable=True)
-        self._checking_tile.setToolTip(CHECKING_TOOLTIP)
         self._picky_tile = self._make_tile(checkable=True)
         self._language_tile = self._make_tile(checkable=False)
         self._checking_tile.clicked.connect(self._on_checking_tile_clicked)

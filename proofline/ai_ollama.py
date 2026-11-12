@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import httpx2
 
-from proofline.ai_answers import parse_answer
-from proofline.ai_http import make_client, post_json
+from proofline.ai_answers import parse_answer, token_count
+from proofline.ai_http import make_client, message, post_json
 from proofline.ai_providers import ProviderSpec, timeout_for
 from proofline.ai_types import AiError, AiRequest, AiResult
 from proofline.config import redact_url
@@ -54,13 +54,10 @@ def _result(data: dict, schema: dict, label: str) -> AiResult:
     reply = data.get("message")
     reply = reply if isinstance(reply, dict) else {}
     content = reply.get("content")
-    input_tokens = _count(data, "prompt_eval_count")
-    output_tokens = _count(data, "eval_count")
+    input_tokens = token_count(data, "prompt_eval_count")
+    output_tokens = token_count(data, "eval_count")
+    if data.get("done_reason") == "length":  # stopped at num_predict: the JSON is incomplete
+        raise AiError("bad_response", message("cut_off", label), input_tokens, output_tokens, cut_off=True)
     parsed = parse_answer(content if isinstance(content, str) else "", schema, label,
                           input_tokens, output_tokens)
     return AiResult(parsed, input_tokens, output_tokens)
-
-
-def _count(data: dict, name: str) -> int:
-    value = data.get(name)
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0

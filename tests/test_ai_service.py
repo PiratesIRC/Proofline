@@ -731,3 +731,24 @@ def test_openrouter_reported_cost_just_over_ten_times_the_worst_case_is_ignored(
         assert h.service.submit(request()) is True
     [entry] = read_entries(h.ledger)
     assert entry.cost == cost(OPENROUTER_CHEAP, 1200, 300)
+
+
+def test_a_priced_answer_without_token_counts_is_recorded_at_the_worst_case(qtbot, tmp_path):
+    h = Harness(qtbot, tmp_path, FakeBackend(AiResult({"ok": True}, 0, 0)))
+    req = request()
+    with qtbot.waitSignal(h.service.finished):
+        h.service.submit(req)
+    [entry] = read_entries(h.ledger)
+    price = price_for("anthropic", "claude-haiku-5-5")
+    assert (entry.input_tokens, entry.output_tokens) == (estimate_input_tokens(req.text), req.max_tokens)
+    assert entry.estimated is True
+    assert entry.cost == cost(price, estimate_input_tokens(req.text), req.max_tokens) > 0
+
+
+def test_an_unpriced_answer_without_token_counts_stays_unknown(qtbot, tmp_path):
+    config = Config(ai_enabled=True, ai_provider="ollama", ai_models=("ollama=llama3",))
+    h = Harness(qtbot, tmp_path, FakeBackend(AiResult({"ok": True}, 0, 0)), config=config, key=None)
+    with qtbot.waitSignal(h.service.finished):
+        h.service.submit(request())
+    [entry] = read_entries(h.ledger)
+    assert (entry.cost, entry.cost_known, entry.estimated) == (0.0, False, False)

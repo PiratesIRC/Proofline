@@ -461,3 +461,48 @@ def test_popup_hides_ai_while_the_server_is_unreachable(harness):
     harness.controller.on_check_failed("Could not reach the server.")
     harness.controller._show_popup()
     assert AI_TEXT not in link_texts(harness.popup)
+
+
+def _add_word_as_the_app_does(h):
+    def add(word):
+        h.config = replace(h.config, personal_dictionary=(*h.config.personal_dictionary, word))
+        h.controller.on_config_changed()
+    h.controller.add_word_requested.connect(add)
+
+
+def test_add_to_dictionary_removes_the_words_line_at_once(harness):
+    _add_word_as_the_app_does(harness)
+    harness.move_caret(130)
+    harness.card.add_word_requested.emit(TEST)
+    # No new measurement from the monitor yet: the remaining line is redrawn from the last one.
+    assert harness.lines.rects == (QRect(50, 10, 30, 20),)
+    assert harness.lines.isVisible()
+
+
+def test_ignore_removes_the_line_at_once(harness):
+    harness.controller.popup.ignore_requested.emit(ARE)
+    assert harness.lines.rects == (QRect(120, 10, 40, 20),)
+
+
+def test_a_new_span_waits_for_the_monitor_instead_of_reusing_old_lines(harness):
+    lines_before = harness.lines.rects
+    extra = Match(0, 4, "m", "Spelling", ("That",), "MORFOLOGIK_RULE_EN_US", "Typos", "This", "TYPOS")
+    harness.controller.on_checked(harness.snap, (extra, TEST, ARE))
+    assert harness.lines.rects == lines_before  # nothing drawn for "This" until it is measured
+
+
+def test_the_card_follows_its_word_when_the_text_scrolls(card):
+    card.show_for(ARE, QRect(100, 100, 60, 20), BOUNDS)
+    first = card.pos()
+    card.show_for(ARE, QRect(100, 300, 60, 20), BOUNDS)  # same issue, the word moved down 200 px
+    assert card.pos().y() == first.y() + 200
+
+
+def test_adding_a_word_from_the_card_leaves_no_notice_for_the_next_popup(harness):
+    _add_word_as_the_app_does(harness)
+    harness.move_caret(130)
+    assert not harness.popup.isVisible()
+    harness.card.add_word_requested.emit(TEST)
+    harness.controller._show_popup()
+    assert harness.popup.notice_text == ""
+

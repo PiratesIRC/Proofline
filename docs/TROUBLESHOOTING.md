@@ -81,7 +81,7 @@ exactly what got selected.
   settings (server credentials redacted) and the last 200 log lines. Paste it into your issue.
 - **Debug mode** adds short samples of typed text to the log, which helps with app-specific
   problems. Turn it off and **Clear logs** afterwards.
-- Logs: `%LOCALAPPDATA%\Proofline\logs\app.log`. Useful lines:
+- Logs: `%LOCALAPPDATA%\Proofline\logs\app.log` (a portable copy: `data\logs` beside the exe). If that folder cannot be written, the log goes to `%TEMP%\Proofline\logs` instead. If the app cannot start, a message box shows the error and the log's location. Useful lines:
   - `Focus: <app> <ControlType> … -> <reason>`: what was detected and why it was or wasn't used
   - `Typing paused in …` / `N issue(s) in … ms`: a check and its result
   - `Correction not applied: …`: why a fix was refused

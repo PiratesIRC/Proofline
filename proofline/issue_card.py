@@ -129,6 +129,9 @@ class IssueCard(QWidget):
         """Show match's fixes next to word (logical screen rectangle), inside bounds."""
         same = (match, accent, ai_available) == (self._match, self._accent, self._ai_available)
         if self.isVisible() and same and not self._rephrasing:
+            if (word, bounds) != (self._anchor, self._bounds):  # the text scrolled: follow the word
+                self._anchor, self._bounds = QRect(word), QRect(bounds)
+                self.move(card_position(self._anchor, self.rect(), self._bounds))
             return
         self._match, self._accent, self._ai_available = match, accent, ai_available
         self._rephrasing = False

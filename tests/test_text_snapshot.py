@@ -31,7 +31,10 @@ def test_preview_is_single_line_and_truncated(text, expected):
     assert preview(text) == expected
 
 
-def test_describe_includes_app_and_window():
+def test_describe_includes_app_and_window(monkeypatch):
+    from proofline import text_snapshot
+
+    monkeypatch.setattr(text_snapshot, "text_logging_enabled", lambda: True)
     text = snapshot().describe()
     assert "notepad.exe" in text
     assert "notes.txt - Notepad" in text
@@ -105,3 +108,12 @@ def test_loggable_shows_preview_when_opted_in(monkeypatch):
 @pytest.mark.parametrize(("text", "count"), [("", 0), ("  \n", 0), ("\ufeff", 0), ("one\u200b two", 2)])
 def test_word_count_ignores_zero_width_characters(text, count):
     assert word_count(text) == count
+
+
+def test_describe_hides_the_window_title_without_text_logging(monkeypatch):
+    from proofline import text_snapshot
+
+    monkeypatch.setattr(text_snapshot, "text_logging_enabled", lambda: False)
+    text = snapshot().describe()
+    assert "notes.txt - Notepad" not in text
+    assert "notepad.exe" in text

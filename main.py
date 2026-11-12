@@ -12,7 +12,7 @@ from proofline.app import LanguageToolApp
 from proofline.app_identity import DISPLAY_NAME, register_app_id, set_process_app_id
 from proofline.config import APP_DATA_DIR, IS_PORTABLE, import_settings_into_portable
 from proofline.legacy import migrate_app_data, remove_legacy_registry
-from proofline.logging_setup import setup_logging
+from proofline.logging_setup import current_log_path, setup_logging
 from proofline.tray import ACTIVE_COLOR, make_icon
 
 APP_NAME = DISPLAY_NAME
@@ -21,6 +21,25 @@ LOCK_TIMEOUT_MS = 100
 
 
 def main() -> int:
+    """Run the app. A failure during startup is shown in a message box: the packaged app has no
+    console, so a logged error alone would leave the user with no icon and no explanation."""
+    try:
+        return _run()
+    except Exception as exc:
+        logging.getLogger("main").critical("Startup failed", exc_info=True)
+        _show_startup_error(exc)
+        return 1
+
+
+def _show_startup_error(exc: Exception) -> None:
+    log_path = current_log_path()
+    where = f"Details are in {log_path}" if log_path else "No log file could be written."
+    if QApplication.instance() is None:
+        QApplication(sys.argv)
+    QMessageBox.critical(None, APP_NAME, "\n\n".join((f"{APP_NAME} could not start.", str(exc), where)))
+
+
+def _run() -> int:
     # Before logging opens a file in the new folder. A portable copy keeps its own data.
     migrated = import_settings_into_portable(APP_DATA_DIR) if IS_PORTABLE else migrate_app_data()
     setup_logging()

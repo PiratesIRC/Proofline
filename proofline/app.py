@@ -35,7 +35,7 @@ from proofline.replace_request import ReplaceRequest
 from proofline.settings_window import SettingsWindow
 from proofline.setup_hints import SetupHint, unseen
 from proofline.text_monitor import TextMonitor
-from proofline.text_snapshot import FieldSnapshot
+from proofline.text_snapshot import FieldSnapshot, logged_title
 from proofline.tray import TrayIcon
 from proofline.update_check import RELEASES_PAGE_URL, UpdateChecker
 from proofline.usage import UsageReporting
@@ -72,6 +72,7 @@ class LanguageToolApp(QObject):
         self._welcome: WelcomeWindow | None = None
         self._notification_url = ""  # opened if the latest notification is clicked
         self._outage_notices = OutageNotices()
+        self._server_down = False  # set by an unhealthy report; the recovery then rechecks the field
         log.info("Loaded config: %r", self._config)
         set_debug_mode(self._config.debug_mode)
 
@@ -217,11 +218,15 @@ class LanguageToolApp(QObject):
             self._set_config(replace(self._config, enabled=enabled))
 
     def _on_server_healthy(self) -> None:
+        if self._server_down:
+            self._server_down = False
+            self._monitor.request_check_now()  # text typed during the outage was never checked
         self._tray.set_error(None)
         self._outage_notices.recovered()
         self._quick.on_server_status(True, connected_message(self._config.server_url))
 
     def _on_server_unhealthy(self, message: str) -> None:
+        self._server_down = True
         self._tray.set_error(message)
         self._quick.on_server_status(False, message)
         self._on_check_failed(message)
@@ -233,7 +238,7 @@ class LanguageToolApp(QObject):
         )
 
     def _disable_window(self, window_title: str) -> None:
-        log.info("Disabling checking in window %r", window_title)
+        log.info("Disabling checking in window %s", logged_title(window_title))
         self._save_quietly(
             replace(self._config, disabled_windows=(*self._config.disabled_windows, window_title))
         )

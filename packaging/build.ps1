@@ -1,6 +1,7 @@
 # Build the two release files:
 #   dist\Proofline-<version>-portable.zip   unzip and run; settings stay in a data folder beside the exe
 #   dist\Proofline-<version>-setup.exe      per-user installer (Inno Setup 6)
+# plus dist\SHA256SUMS.txt with the sha256 of each, to attach to the GitHub release.
 # Run in its own PowerShell process:  powershell -File packaging\build.ps1 [-SkipInstaller]
 # (PyInstaller logs to stderr; under a 2>&1 redirect that would stop this script.)
 param([switch]$SkipInstaller)
@@ -23,6 +24,9 @@ Delete this file to make the copy use %LOCALAPPDATA%\Proofline like an installed
 if (-not (Test-Path $Python)) { throw "No virtual environment at $Python. See docs/DEVELOPMENT.md." }
 & $Python -c "import PyInstaller" 2>$null
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller is missing: $Python -m pip install -r requirements-build.txt" }
+# A release is built from the exact versions in requirements-lock.txt.
+& $Python (Join-Path $Root 'scripts\check_lock.py')
+if ($LASTEXITCODE -ne 0) { throw 'The installed packages differ from requirements-lock.txt (see above).' }
 $Iscc = $IsccCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $SkipInstaller -and -not $Iscc) {
     throw 'Inno Setup 6 is missing: winget install --id JRSoftware.InnoSetup -e --scope user (or use -SkipInstaller)'
@@ -56,6 +60,12 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
         Write-Host "Built $(Join-Path $Root "dist\$Name-$Version-setup.exe")"
     }
+
+    # Checksums of the release files, attached to the GitHub release (gh_release.py create checks them).
+    $Built = @($Zip)
+    if (-not $SkipInstaller) { $Built = @((Join-Path $Root "dist\$Name-$Version-setup.exe")) + $Built }
+    & $Python scripts\gh_release.py sums (Join-Path $Root 'dist\SHA256SUMS.txt') @Built
+    if ($LASTEXITCODE -ne 0) { throw 'Writing SHA256SUMS.txt failed' }
 }
 finally {
     Pop-Location

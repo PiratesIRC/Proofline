@@ -3,7 +3,7 @@ import winreg
 from dataclasses import replace
 
 import pytest
-from PyQt6.QtCore import QThreadPool
+from PyQt6.QtCore import Qt, QThreadPool
 from PyQt6.QtGui import QGuiApplication, QIcon, QPixmap
 
 from proofline import lt_client
@@ -391,3 +391,38 @@ def test_shortcuts_page_has_the_ai_rephrase_row(window, store):
     edit.set_hotkey("ctrl+alt+r")
     window.shortcuts.apply_shortcuts()
     assert store.config.hotkey_ai_rephrase == "ctrl+alt+r"
+
+
+def test_config_changed_keeps_shortcut_edits_that_are_not_applied(window, store):
+    window.shortcuts._edits["hotkey_toggle"].set_hotkey("ctrl+alt+shift+t")  # typed, Apply not pressed
+    store.config = replace(store.config, picky=True)  # another page saves
+    window.config_changed()
+    assert window.shortcuts._edits["hotkey_toggle"].hotkey() == "ctrl+alt+shift+t"
+
+
+def test_applied_shortcuts_are_reloaded_as_saved(window, store):
+    window.shortcuts._edits["hotkey_toggle"].set_hotkey("ctrl+alt+shift+t")
+    window.shortcuts.apply_shortcuts()
+    window.config_changed()
+    store.config = replace(store.config, hotkey_toggle="ctrl+alt+shift+y")  # changed elsewhere later
+    window.config_changed()
+    assert window.shortcuts._edits["hotkey_toggle"].hotkey() == "ctrl+alt+shift+y"
+
+
+def test_minimum_words_help_names_the_saved_check_now_shortcut(window, store):
+    store.config = replace(store.config, hotkey_check_now="ctrl+alt+k")
+    window.config_changed()
+    assert "CTRL+ALT+K" in window.checking._min_words_card.description_label.text()
+
+
+@pytest.mark.parametrize("key", [Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter])
+def test_expander_header_opens_from_the_keyboard(qtbot, key):
+    card = ExpanderCard("Personal dictionary")
+    qtbot.addWidget(card)
+    header = card.header
+    assert header.focusPolicy() & Qt.FocusPolicy.TabFocus
+    assert header.accessibleName() == "Personal dictionary"
+    qtbot.keyClick(header, key)
+    assert card.is_expanded
+    qtbot.keyClick(header, key)
+    assert not card.is_expanded

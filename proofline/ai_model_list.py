@@ -16,10 +16,9 @@ import httpx2
 
 from proofline.ai_http import BEARER, get_json, make_client, message
 from proofline.ai_prices import ModelPrice
-from proofline.ai_providers import ProviderSpec, timeout_for
+from proofline.ai_providers import OPENROUTER_ID, ProviderSpec, timeout_for
 from proofline.ai_types import AiError
 
-OPENROUTER = "openrouter"
 OLLAMA = "ollama"
 STRUCTURED_OUTPUTS = "structured_outputs"
 PER_MILLION = 1_000_000
@@ -63,7 +62,7 @@ def _usable_key(spec: ProviderSpec, key: str | None) -> str | None:
 
 def _source(spec: ProviderSpec, base_url: str) -> tuple[str, Reader]:
     """The list URL for the provider and the reader that turns its answer into choices."""
-    if spec.id == OPENROUTER:
+    if spec.id == OPENROUTER_ID:
         return spec.base_url.rstrip("/") + "/models", _openrouter_choices
     if spec.id == OLLAMA:
         return base_url.rstrip("/") + "/api/tags", _ollama_choices
@@ -91,7 +90,7 @@ def _openrouter_price(pricing: Any, model_id: str, label: str) -> ModelPrice | N
     completion = _number(pricing.get("completion"))
     if prompt is None or completion is None:
         return None
-    return ModelPrice(OPENROUTER, model_id, label, prompt * PER_MILLION, completion * PER_MILLION)
+    return ModelPrice(OPENROUTER_ID, model_id, label, prompt * PER_MILLION, completion * PER_MILLION)
 
 
 def _ollama_choices(data: dict, spec: ProviderSpec) -> list[ModelChoice]:

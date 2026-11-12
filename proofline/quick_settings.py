@@ -111,6 +111,7 @@ class QuickSettings(QObject):
             current_app_status=STATUS_OFF if disabled else status,
             current_app_disabled=disabled,
             accent=config.tray_color,
+            toggle_hotkey=config.hotkey_toggle,
         )
 
     def show(self) -> None:

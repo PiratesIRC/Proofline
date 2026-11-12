@@ -12,14 +12,13 @@ import math
 
 import httpx2
 
-from proofline.ai_answers import parse_answer
+from proofline.ai_answers import parse_answer, token_count
 from proofline.ai_http import make_client, message, post_json
-from proofline.ai_providers import ProviderSpec, timeout_for
+from proofline.ai_providers import OPENROUTER_ID, ProviderSpec, timeout_for
 from proofline.ai_types import AiError, AiRequest, AiResult
 
 OTHER_ID = "other"
 SCHEMA_PROMPT = "\n\nAnswer only with json matching this JSON Schema: "
-OPENROUTER_ID = "openrouter"
 OPENROUTER_HEADERS = {
     "HTTP-Referer": "https://github.com/PiratesIRC/Proofline",
     "X-OpenRouter-Title": "Proofline",
@@ -102,8 +101,8 @@ def _result(data: dict, schema: dict, label: str, trusted_cost: bool) -> AiResul
     """The first choice as an AiResult; a cut-off, a refusal or a malformed answer raises AiError."""
     usage = data.get("usage")
     usage = usage if isinstance(usage, dict) else {}
-    input_tokens = _count(usage, "prompt_tokens")
-    output_tokens = _count(usage, "completion_tokens")
+    input_tokens = token_count(usage, "prompt_tokens")
+    output_tokens = token_count(usage, "completion_tokens")
     choice = _first_choice(data, label, input_tokens, output_tokens)
     reply = choice.get("message")
     reply = reply if isinstance(reply, dict) else {}
@@ -122,11 +121,6 @@ def _first_choice(data: dict, label: str, input_tokens: int, output_tokens: int)
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         raise AiError("bad_response", message("bad_response", label), input_tokens, output_tokens)
     return choices[0]
-
-
-def _count(usage: dict, name: str) -> int:
-    value = usage.get(name)
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _cost(usage: dict, trusted: bool) -> float | None:

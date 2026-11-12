@@ -163,3 +163,14 @@ def test_client_closed_after_send():
     transport = ClosingTransport(recorder([]))
     OllamaBackend(provider("ollama"), LOCAL_URL, transport=transport).send(REQUEST, "llama3.2")
     assert transport.closed
+
+
+def test_ollama_answer_cut_off_at_the_token_limit_says_so():
+    body = {**OK_BODY, "message": {"role": "assistant", "content": '{"ok": tr'}, "done_reason": "length",
+            "eval_count": 50}
+    with pytest.raises(AiError) as caught:
+        backend_for(recorder([], body=body)).send(REQUEST, "llama3.2")
+    assert caught.value.kind == "bad_response"
+    assert caught.value.cut_off is True
+    assert "cut off" in caught.value.message
+    assert (caught.value.input_tokens, caught.value.output_tokens) == (12, 50)

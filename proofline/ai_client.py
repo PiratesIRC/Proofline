@@ -19,14 +19,15 @@ from proofline.ai_http import (
     message,
     run_within,
 )
+from proofline.ai_providers import CLOUD_TIMEOUT_SECONDS, provider
 from proofline.ai_types import AiBackend, AiError, AiRequest, AiResult  # noqa: F401
 
 log = logging.getLogger(__name__)
 
 LABEL = "Claude"
-BASE_URL = "https://api.anthropic.com"
+BASE_URL = provider("anthropic").base_url  # fixed here, so ANTHROPIC_BASE_URL cannot redirect the key
 MAX_INPUT_CHARS = 8000
-TIMEOUT_SECONDS = 20.0
+TIMEOUT_SECONDS = CLOUD_TIMEOUT_SECONDS
 EFFORT = "low"
 CREDIT_TEXT = "credit balance"  # the API's wording for an empty account, sent as 400 or 402
 CREDIT_STATUSES = (400, 402)

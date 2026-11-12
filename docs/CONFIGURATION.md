@@ -11,16 +11,22 @@ the app; this page is for administrators, scripted deployment and troubleshootin
 | Logs | `%LOCALAPPDATA%\Proofline\logs\app.log` (rotates at 2 MB, 3 backups) |
 | Single-instance lock | `%LOCALAPPDATA%\Proofline\app.lock` |
 | Update check result | `%LOCALAPPDATA%\Proofline\version_check.json` |
+| Settings before a failed load | `%LOCALAPPDATA%\Proofline\config.json.bak` (written only when `config.json` could not be loaded as it was) |
 | Usage count ledger | `%LOCALAPPDATA%\Proofline\usage_counts.jsonl` (one line per applied correction) |
-| Usage client state | `%LOCALAPPDATA%\Proofline\usage\proofline\` (random install id, report timing) |
+| AI rephrase count ledger | `%LOCALAPPDATA%\Proofline\usage_ai_rephrases.jsonl` (one line per applied AI change) |
+| Usage client state | `%LOCALAPPDATA%\Proofline\usage\proofline\` and `usage\proofline-ai\` (random install id, report timing) |
+| AI spending ledger | `%LOCALAPPDATA%\Proofline\ai_usage.jsonl` (token counts and cost per AI request, never the text) |
 | Notification icon | `%LOCALAPPDATA%\Proofline\app-icon.png` |
 | Start with Windows | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Proofline` |
 | Notification name and icon | `HKCU\Software\Classes\AppUserModelId\PiratesIRC.Proofline` |
 
 No administrator rights are needed; nothing is written under `HKEY_LOCAL_MACHINE`.
 
-`config.json` is written atomically (temp file, then rename). If it is missing, unreadable or
-invalid, the app starts with defaults and logs a warning. Unknown keys are ignored. Keys that are
+`config.json` is written atomically (temp file flushed to disk, then rename). If it is missing
+or unreadable, the app starts with defaults and logs a warning. If one setting has an invalid
+value, only that setting takes its default; the others are kept, and a warning names the setting.
+In both cases the file as it was is first copied to `config.json.bak` beside it, because the next
+settings change overwrites `config.json`. Unknown keys are ignored. Keys that are
 absent take their defaults, so a file containing only `server_url` is valid.
 
 ## Settings reference
@@ -34,7 +40,7 @@ absent take their defaults, so a file containing only `server_url` is valid.
 | `debounce_ms` | int | `1000` | Checking › Check after I stop typing for | 200 to 10000. |
 | `min_words` | int | `2` | Checking › Only check text with at least | 1 to 10. `Ctrl+Alt+L` ignores it. |
 | `picky` | bool | `false` | Checking › Picky mode | Sends `level=picky`. |
-| `flag_hidden_characters` | bool | `true` | Checking › Flag hidden characters | Flags a zero-width space, soft hyphen or direction mark inside a word, text-direction controls (U+202A to U+202E, U+2066 to U+2069) anywhere, and unusual spaces (thin, em, narrow no-break, ideographic and similar). Checked by Proofline itself, not the server. Never flagged, because web editors insert them as placeholders or browsers add them: U+FEFF, U+2060, U+00A0, U+200C, U+200D. |
+| `flag_hidden_characters` | bool | `true` | Checking › Flag hidden characters | Flags a zero-width space, soft hyphen, direction mark, Mongolian vowel separator (U+180E) or invisible math operator (U+2061 to U+2064) inside a word, text-direction controls (U+202A to U+202E, U+2066 to U+2069) anywhere, and unusual spaces (thin, em, narrow no-break, ideographic and similar). Checked by Proofline itself, not the server. Never flagged, because web editors insert them as placeholders or browsers add them: U+FEFF, U+2060, U+00A0, U+200C, U+200D. |
 | `personal_dictionary` | list of strings | `[]` | Checking › Personal dictionary; popup › Add to dictionary | Spelling matches only; case-insensitive. |
 | `disabled_rules` | list of strings | `[]` | Checking › Turned-off rules; popup › Turn off this rule | LanguageTool rule IDs, sent as `disabledRules`. |
 | `disabled_categories` | list of strings | `[]` | Checking › Turned-off categories | Category IDs (upper-cased), sent as `disabledCategories`. |
@@ -60,17 +66,17 @@ absent take their defaults, so a file containing only `server_url` is valid.
 | `ai_monthly_cap_cents` | int | `100` | AI › Monthly spending limit | 10 to 10000 (US cents, $0.10 to $100). A request is refused when this calendar month's recorded cost plus the request's worst-case cost would pass it. Usage is recorded in `ai_usage.jsonl` beside this file (token counts and cost, never the text). |
 | `debug_mode` | bool | `false` | Advanced › Debug mode | Adds short text samples to the log. |
 | `check_for_updates` | bool | `true` | Advanced › Check for updates | Asks GitHub whether a newer release exists (see below). Sends no text. |
-| `share_usage_counts` | bool | `true` | Advanced › Share anonymous usage counts | Sends the Corrections Applied total and a random id to plugin-stats.dpas.workers.dev for the README badges. Turning it off asks the server to delete this install's figures. See README › Anonymous usage counts. |
+| `share_usage_counts` | bool | `true` | Advanced › Share anonymous usage counts | Sends the Corrections Applied and AI Rephrases totals, each with its own random id, to plugin-stats.dpas.workers.dev for the README badges. Turning it off asks the server to delete this install's figures. See README › Anonymous usage counts. |
 | `paused_until` | string | `""` | Quick settings › Pause for 1 hour | Local time the pause ends, e.g. `2026-10-23T14:00:00`. Restored at startup; checking turns back on once it has passed. `""` when not paused. |
 | `rule_labels` | list of strings | `[]` | (none) | `RULE_ID=Name` for rules turned off from the popup, so Settings can show their names. |
 | `welcome_shown` | bool | `false` | (none) | Set when the first-run welcome window is finished or closed. Only fresh installs (no settings file) see it. |
-| `defaults_version` | int | `2` | (none) | Which recommended exclusions this file already received. A file without it is treated as `1` and gets `explorer.exe` added once. |
+| `defaults_version` | int | `3` | (none) | Which recommended exclusions this file already received. A file without it is treated as `1`. Each load adds, once, the apps recommended after its version: `explorer.exe` (version 2) and `LastPass for Desktop.exe` (version 3). |
 | `shown_hints` | list of strings | `[]` | (none) | Setup tips already shown (`google-docs`, `java-access-bridge`, `firefox-update`) and releases already announced (`update-<version>`). Remove an entry to see that tip or announcement again. |
 
 ### Default exclusions
 
 `disabled_apps`: `KeePass.exe`, `KeePassXC.exe`, `1Password.exe`, `Bitwarden.exe`,
-`WindowsTerminal.exe`, `cmd.exe`, `powershell.exe`, `pwsh.exe`, `conhost.exe`, `putty.exe`,
+`LastPass for Desktop.exe` (added in 0.4.3), `WindowsTerminal.exe`, `cmd.exe`, `powershell.exe`, `pwsh.exe`, `conhost.exe`, `putty.exe`,
 `mstsc.exe`, `vmconnect.exe`, `RDCMan.exe`, `Code.exe`, `devenv.exe`, `Ssms.exe`, `EXCEL.EXE`,
 `explorer.exe` (File Explorer, added in 0.4.1).
 
@@ -79,8 +85,9 @@ absent take their defaults, so a file containing only `server_url` is valid.
 
 These apply to new installs and to config files that never saved these lists. **Add recommended
 exclusions** (Apps & fields › Apps) adds any that are missing without touching your own entries.
-A settings file from 0.4.0 or earlier gets `explorer.exe` added once on load (see `defaults_version`),
-unless it is already listed or in `always_check_apps`; if you remove it afterwards, it stays removed.
+A settings file from 0.4.0 or earlier gets `explorer.exe` added once on load, and one from 0.4.2 or
+earlier gets `LastPass for Desktop.exe` (see `defaults_version`), unless the app is already listed or
+in `always_check_apps`; if you remove one afterwards, it stays removed.
 
 ### Built-in field filters (not configurable)
 
@@ -93,7 +100,8 @@ fields (*user name*, *user ID*, *login ID* or *email* in the label, help text, a
 class; *email body*, *email message* and similar are still checked), or fields whose label,
 placeholder or automation ID mentions one-time, verification or entry codes (*Enter code*,
 *Secure code*), card numbers, CVV, SSN, PIN, routing or account numbers, IBAN, API/secret keys or
-tokens. For a document, such as an Outlook message body, the label rules ignore its name,
+tokens. In an automation ID or class, a capital letter after a lower-case one starts a word, so
+`txtPassword`, `myApiKey` and `txtUserName` are skipped too. For a document, such as an Outlook message body, the label rules ignore its name,
 which is the message subject, and still use its help text, automation ID and class: a reply to
 an email titled "Password changes" is still checked. A
 `custom_fields` entry overrides these filters except for passwords.
@@ -116,7 +124,8 @@ an email titled "Password changes" is still checked. A
 | Variable | Effect |
 |---|---|
 | `PROOFLINE_LOG_LEVEL` | Console log level (`DEBUG`, `INFO`, …). Default `INFO`; the file always records `DEBUG`. Invalid values fall back to `INFO` with a warning. |
-| `PROOFLINE_LOG_TEXT=1` | Same as Debug mode: include short text samples in logs. |
+| `PROOFLINE_LOG_TEXT=1` | Same as Debug mode: include short text samples, window titles and the words in list settings in logs. |
+| `LT_TEST_SERVER_URL` | Development only: enables the live-server integration tests. |
 
 The names from before the rename, `LT_DESKTOP_LOG_LEVEL` and `LT_DESKTOP_LOG_TEXT`, still work when
 the new name is not set.
@@ -125,7 +134,6 @@ the new name is not set.
 and `%LOCALAPPDATA%\Proofline` does not, the folder is moved (or, if a file in it is in use, only
 `config.json` is copied). The old Run value `LanguageToolDesktop` and the key
 `HKCU\Software\Classes\AppUserModelId\PiratesIRC.LanguageToolDesktop` are deleted.
-| `LT_TEST_SERVER_URL` | Development only: enables the live-server integration tests. |
 
 ## Limits
 

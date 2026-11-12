@@ -11,6 +11,14 @@ from proofline.ai_jobs import AI_CATEGORY, AI_RULE_ID, is_ai_match
 from proofline.ai_merge import PendingEdit, merge_with_ai, moved_matches
 from proofline.app_names import display_name
 from proofline.badge import BADGE_SIZE, BadgeState, BadgeWidget
+from proofline.combined_fix import (
+    FIX_ALL_CATEGORY,
+    FIX_ALL_RULE_ID,
+    Fix,
+    combined_match,
+    first_suggestions,
+    non_overlapping,
+)
 from proofline.config import Config
 from proofline.dictionary import filter_matches, ignore_key
 from proofline.issue_card import IssueCard
@@ -117,6 +125,7 @@ class OverlayController(QObject):
         self._popup.find_more_requested.connect(self._on_find_more)
         self._popup.rewrite_requested.connect(self._on_rewrite)
         self._popup.accept_all_requested.connect(self.accept_all_ai)
+        self._popup.fix_all_requested.connect(self.fix_all)
 
     @property
     def card(self) -> IssueCard:
@@ -146,21 +155,29 @@ class OverlayController(QObject):
 
     def accept_all_ai(self) -> bool:
         """Apply every listed AI suggestion that has a fix as one verified replacement; False if none."""
-        snapshot = self._snapshot
-        fixes = sorted(((m, offered_replacements(m)[0]) for m in self._matches if is_ai_match(m) and offered_replacements(m)),
-                       key=lambda fix: fix[0].offset)
-        if snapshot is None or not fixes:
+        fixes = non_overlapping((m, offered_replacements(m)[0]) for m in self._matches
+                                if is_ai_match(m) and offered_replacements(m))
+        if not self._apply_combined(fixes, AI_RULE_ID, AI_CATEGORY):
             return False
-        start, end = fixes[0][0].offset, max(m.offset + m.length for m, _ in fixes)
-        parts, position = [], start
-        for match, replacement in fixes:  # in text order; AI matches never overlap
-            parts.append(snapshot.text[position:match.offset] + replacement)
-            position = match.offset + match.length
-        replacement = "".join(parts) + snapshot.text[position:end]
-        span = Match(start, end - start, "", "", (replacement,), AI_RULE_ID, AI_CATEGORY,
-                     snapshot.text[start:end], AI_CATEGORY)
         log.info("Accepting %d AI suggestion(s) at once", len(fixes))
-        self.request_replace(ReplaceRequest.build(snapshot, span, replacement))
+        return True
+
+    def fix_all(self) -> bool:
+        """Apply the first suggestion of every LanguageTool issue as one verified replacement; False if none."""
+        fixes = first_suggestions(self._matches)
+        if not self._apply_combined(fixes, FIX_ALL_RULE_ID, FIX_ALL_CATEGORY):
+            return False
+        log.info("Fixing %d issue(s) at once", len(fixes))
+        return True
+
+    def _apply_combined(self, fixes: tuple[Fix, ...], rule_id: str, category: str) -> bool:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return False
+        combined = combined_match(snapshot.text, fixes, rule_id, category)
+        if combined is None:
+            return False
+        self.request_replace(ReplaceRequest.build(snapshot, *combined))
         return True
 
     def _current_ai_matches(self) -> tuple[Match, ...]:
@@ -288,12 +305,16 @@ class OverlayController(QObject):
         target = target_for(self._snapshot, self._matches) if wanted else None
         if target == self._target:
             return
+        previous = self._measured
         self._target = target
         self._measured = None
         if target is None:
             self._underlines.hide()
             self._hide_card()
         self.underline_target_changed.emit(target)
+        kept = previous.narrowed_to(target) if previous is not None and target is not None else None
+        if kept is not None:  # only lines went away (dictionary, ignore): redraw now, not on the next poll
+            self.on_underlines(kept)
 
     def on_underlines(self, underlines: Underlines | None) -> None:
         """Draw what the monitor measured, if it still belongs to the current target."""
@@ -405,6 +426,8 @@ class OverlayController(QObject):
             # No AI while the server is unreachable: findings would wait for a recheck that never comes.
             ai_available=self._ai_available() and self._state is not BadgeState.ERROR,
         )
+        if self._state is BadgeState.CHECKING:  # no result yet: the list would say "No issues found."
+            self._popup.show_status(CHECKING_STATUS if self._will_check(snapshot) else TOO_SHORT_STATUS)
 
     def _on_replacement_chosen(self, match: Match, replacement: str) -> None:
         if self._snapshot is None:
@@ -433,6 +456,8 @@ class OverlayController(QObject):
     def _on_add_word(self, match: Match) -> None:
         word = match.error_text.strip()
         self.add_word_requested.emit(word)
+        if not self._popup.isVisible():  # added from the card: a notice would wait in the hidden popup
+            return
         self._popup.show_notice(f"Added “{word}” to your dictionary.", "personal_dictionary", word)
 
     def _on_disable_rule(self, match: Match) -> None:

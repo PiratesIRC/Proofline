@@ -11,7 +11,11 @@ from urllib.parse import quote
 
 import httpx2
 
-from proofline.ai_answers import parse_answer, schema_without_additional_properties
+from proofline.ai_answers import (
+    parse_answer,
+    schema_without_additional_properties,
+    token_count,
+)
 from proofline.ai_http import make_client, message, post_json
 from proofline.ai_providers import ProviderSpec, timeout_for
 from proofline.ai_types import AiError, AiRequest, AiResult
@@ -61,8 +65,8 @@ def _result(data: dict, schema: dict, label: str) -> AiResult:
     """The first candidate's text as an AiResult; a block, a refusal or a cut-off raises AiError."""
     usage = data.get("usageMetadata")
     usage = usage if isinstance(usage, dict) else {}
-    input_tokens = _count(usage, "promptTokenCount")
-    output_tokens = _count(usage, "candidatesTokenCount") + _count(usage, "thoughtsTokenCount")
+    input_tokens = token_count(usage, "promptTokenCount")
+    output_tokens = token_count(usage, "candidatesTokenCount") + token_count(usage, "thoughtsTokenCount")
     feedback = data.get("promptFeedback")
     if isinstance(feedback, dict) and feedback.get("blockReason"):
         raise AiError("refusal", message("refusal", label), input_tokens, output_tokens)
@@ -90,8 +94,3 @@ def _joined_text(candidate: dict) -> str:
     if not isinstance(parts, list):
         return ""
     return "".join(part["text"] for part in parts if isinstance(part, dict) and isinstance(part.get("text"), str))
-
-
-def _count(usage: dict, name: str) -> int:
-    value = usage.get(name)
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0

@@ -57,6 +57,20 @@ class Underlines:
         return target is not None and (self.field_id, self.text, self.spans) == (
             target.field_id, target.text, target.spans)
 
+    def narrowed_to(self, target: UnderlineTarget) -> Underlines | None:
+        """These rectangles for target, when target only drops spans of this measurement; else None.
+
+        Lets a word added to the dictionary or ignored lose its line at once instead of on the
+        monitor's next measurement.
+        """
+        if (target.field_id, target.text) != (self.field_id, self.text):
+            return None
+        by_span = dict(zip(self.spans, self.rects, strict=True))
+        if any(span not in by_span for span in target.spans):
+            return None
+        return Underlines(self.field_id, self.text, self.field_rect,
+                          tuple(by_span[span] for span in target.spans), target.spans)
+
 
 def underlined_matches(matches: Sequence[Match]) -> tuple[Match, ...]:
     """The matches that get a line, in text order: span i of target_for() is match i here."""

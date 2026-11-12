@@ -28,6 +28,12 @@ _TYPE_CHECKS: dict[str, Callable[[Any], bool]] = {
 }
 
 
+def token_count(data: dict, name: str) -> int:
+    """A token count from a provider's answer; 0 when it is missing or not a whole number."""
+    value = data.get(name)
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def parse_answer(text: str, schema: dict, label: str, input_tokens: int, output_tokens: int) -> dict:
     """The answer as a JSON object matching schema; a leading think block and one code fence are removed."""
     try:

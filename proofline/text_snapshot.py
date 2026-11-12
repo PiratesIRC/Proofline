@@ -57,7 +57,7 @@ class FieldSnapshot:
         return (
             f"{self.process_name} {self.control_type} "
             f"class={self.class_name[:MAX_CLASS_CHARS]!r} "
-            f"window={self.window_title!r} hwnd={self.hwnd:#x}"
+            f"window={logged_title(self.window_title)} hwnd={self.hwnd:#x}"
         )
 
 
@@ -75,6 +75,11 @@ class FocusResult:
     window_title: str = ""
     signature: str = ""  # config.field_signature() of the resolved element
     patterns: str = ""  # "Text+Value", "Value", "Win32 edit", "none"; only when diagnosing
+
+
+def logged_title(title: str) -> str:
+    """A window title for the log: in full only when text logging is on."""
+    return repr(title) if text_logging_enabled() else f"<{len(title)} chars>"
 
 
 def loggable(text: str) -> str:

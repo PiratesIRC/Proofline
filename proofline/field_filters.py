@@ -40,7 +40,7 @@ _SEP = r"[\s_-]?"
 # Each phrase is a regex fragment. Word boundaries are added around the whole
 # alternation so "pin" never matches inside "spinning" or "pinned".
 _SENSITIVE_PHRASES = (
-    r"passwords?|passcodes?|passphrases?",
+    rf"pass{_SEP}(?:words?|codes?|phrases?)",
     rf"one{_SEP}time{_SEP}code",
     r"otp",
     rf"verification{_SEP}code",
@@ -85,6 +85,9 @@ _ACCOUNT_PHRASES = (
     # "Email body", "Email message" and the like are where people write prose.
     rf"e{_SEP}mails?(?!{_SEP}(?:body|message|text|content|draft|reply|signature|template|subject))",
 )
+# camelCase word starts in an id or class ("txtPassword", "APIKey"): a space is put there before
+# matching, so "Password" and "Key" start words. Labels and help text are matched as written.
+CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 ACCOUNT_PATTERN = re.compile(
     _WORD_START + "(?:" + "|".join(_ACCOUNT_PHRASES) + ")" + _WORD_END,
     re.IGNORECASE,
@@ -163,7 +166,7 @@ def _is_numeric(traits: FieldTraits) -> bool:
 
 def _sensitive_phrase(traits: FieldTraits) -> str:
     """Return the first sensitive phrase found in name, help text or automation id."""
-    for text in (traits.name, traits.help_text, traits.automation_id):
+    for text in (traits.name, traits.help_text, *_id_forms(traits.automation_id)):
         match = SENSITIVE_PATTERN.search(text)
         if match:
             return match.group(0).lower()
@@ -172,8 +175,14 @@ def _sensitive_phrase(traits: FieldTraits) -> str:
 
 def _account_phrase(traits: FieldTraits) -> str:
     """Return the first user name or email phrase found in the label, help text, id or class."""
-    for text in (traits.name, traits.help_text, traits.automation_id, traits.class_name):
+    for text in (traits.name, traits.help_text, *_id_forms(traits.automation_id), *_id_forms(traits.class_name)):
         match = ACCOUNT_PATTERN.search(text)
         if match:
             return match.group(0).lower()
     return ""
+
+
+def _id_forms(text: str) -> tuple[str, str]:
+    """An id or class as written, then split at camelCase boundaries. Both are matched: the split
+    finds "txtPassword", and the original still finds "passWord" (split into "pass Word")."""
+    return text, CAMEL_CASE_BOUNDARY.sub(" ", text)

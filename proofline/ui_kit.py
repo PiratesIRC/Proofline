@@ -19,6 +19,7 @@ from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
     QGuiApplication,
+    QKeyEvent,
     QMouseEvent,
     QPainter,
     QPaintEvent,
@@ -162,6 +163,8 @@ def stylesheet(tokens: Tokens, accent: str) -> str:
     QWidget#uiRoot QLabel#statusError {{ font-size: 12px; color: {t.error_text}; }}
     QFrame#card {{ background: {t.card}; border: 1px solid {t.card_border}; border-radius: 6px; }}
     QFrame#cardBody {{ border-top: 1px solid {t.divider}; }}
+    QWidget#expanderHeader {{ border: 1px solid transparent; border-radius: 6px; }}
+    QWidget#expanderHeader:focus {{ border: 1px solid {fill}; }}
     QFrame#flyoutPanel {{ background: {t.card}; border: none; }}
     QFrame#info_warning {{ background: {t.warning_bg}; border: 1px solid {t.warning_border}; border-radius: 6px; }}
     QFrame#info_error {{ background: {t.error_bg}; border: 1px solid {t.error_border}; border-radius: 6px; }}
@@ -326,6 +329,31 @@ class SettingCard(QFrame):
         return query.casefold() in self._keywords
 
 
+class _ExpanderHeader(QWidget):
+    """The clickable top row of an ExpanderCard; Space or Enter folds it like a click."""
+
+    activated = pyqtSignal()
+    KEYS = (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter)
+
+    def __init__(self, title: str) -> None:
+        super().__init__()
+        self.setObjectName("expanderHeader")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)  # so the focus rule draws
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(title)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.activated.emit()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in self.KEYS:
+            self.activated.emit()
+        else:
+            super().keyPressEvent(event)
+
+
 class ExpanderCard(QFrame):
     """A card with a header that folds a body open and closed."""
 
@@ -335,9 +363,8 @@ class ExpanderCard(QFrame):
         super().__init__()
         self.setObjectName("card")
         self._keywords = f"{title} {description} {keywords}".casefold()
-        header = QWidget()
-        header.setCursor(Qt.CursorShape.PointingHandCursor)
-        header.mousePressEvent = self._on_header_click  # type: ignore[method-assign]
+        header = self.header = _ExpanderHeader(title)
+        header.activated.connect(lambda: self.set_expanded(not self.is_expanded))
         column, self.title_label, self.description_label = _text_column(title, description)
         self._summary = QLabel()
         self._summary.setObjectName("cardDescription")
@@ -374,10 +401,6 @@ class ExpanderCard(QFrame):
 
     def matches(self, query: str) -> bool:
         return query.casefold() in self._keywords
-
-    def _on_header_click(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.set_expanded(not self.is_expanded)
 
 
 class InfoBar(QFrame):

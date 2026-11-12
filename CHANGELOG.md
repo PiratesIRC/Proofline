@@ -2,6 +2,65 @@
 
 All notable changes to this project.
 
+## 0.4.4 (2026-11-12)
+
+### Added
+- **Fix all N issues** in the issues popup applies the first suggestion of every LanguageTool
+  issue at once. It shows when two or more issues have a suggestion; AI findings keep their own
+  **Accept all AI suggestions**.
+
+### Fixed
+- After **Add to dictionary** or **Ignore for now**, the wavy line under that word could stay on
+  screen. The line is now removed at once.
+- One invalid value in `config.json` no longer resets every setting. Only that setting takes its
+  default; the personal dictionary, the skipped apps and the other settings are kept. The file as
+  it was is copied to `config.json.bak` first.
+- When Windows refused to put a correction on the clipboard, the clipboard was left empty. Your
+  earlier clipboard contents are now put back, and no keystroke is sent.
+- A correction checks again that the same field and window are in front immediately before it
+  sends Ctrl+V or Delete. Before, a switch to another window while the word was being selected
+  (up to half a second) could send the keystroke to the other program.
+- Fields whose automation ID names a password, key, PIN, card number, token, user name or email
+  in camelCase (such as `txtPassword`, `myApiKey`, `creditCardNumber`, `txtUserName`) are no
+  longer checked. Before, only IDs with the word separated by `_`, `-` or a space were skipped.
+- **Don't check in › Apps** could match the wrong program after Windows gave a closed program's
+  process number to a new one, because the program name was remembered per process number.
+- When the LanguageTool server comes back after an outage, the field in front is checked at once.
+  Before, text typed during the outage stayed unchecked until it was edited.
+- If the app cannot start, it now shows a message with the error and where the log is. Before,
+  the packaged app exited with no icon and no message. When the log folder cannot be written
+  (such as a portable copy in a read-only folder), the log goes to `%TEMP%\Proofline\logs`.
+- An AI answer from a paid provider that came back without token counts was recorded as costing
+  nothing, so it did not count toward the monthly AI limit. It is now recorded at its largest
+  possible cost, as failed requests with an unknown outcome already were.
+- The card under a flagged word now moves with the word when the text scrolls. Before, it stayed
+  where the word had been.
+- After **Add to dictionary** on the card under a word, the next issues list (even in another
+  field) opened with an old "Added *word* to your dictionary" notice. That notice now shows only
+  when the word is added from the open list.
+- Shortcuts typed in **Settings › Shortcuts** but not yet applied are kept when another setting
+  saves. Before, any other change reloaded the page and the typed keys were lost.
+- The Checking tile's tooltip and the minimum-words help in Settings name your own shortcuts.
+  Before, they always said Ctrl+Alt+P and Ctrl+Alt+L, even after those shortcuts were changed.
+- The sections in Settings that fold open (personal dictionary, turned-off rules, app and window
+  lists) can be reached with Tab and opened with Space or Enter, show an outline when focused, and
+  have a name for screen readers. Before, only the mouse could open them.
+- Clicking the badge while a check is running shows "Checking…" until the results arrive. Before,
+  the list said "No issues found." in that time.
+- The Undo notice after **Turn off in this app** or **this window** stays open while the mouse is
+  on it, and closes 10 seconds after the mouse leaves. Before, it closed after 10 seconds even
+  while you were reaching for Undo.
+- When another program held the clipboard just after a correction was pasted, the correction was
+  reported as failed although it had been applied. Putting your clipboard back is now tried three
+  times, and a failure is only logged.
+- An Ollama answer that stopped at the length limit now says it was cut off, as the other
+  providers do, instead of "could not be read".
+
+### Changed
+- The log no longer contains window titles or the words in your personal dictionary and other
+  setting lists unless **Debug mode** or `PROOFLINE_LOG_TEXT=1` is on. Without it, a window
+  title is logged as its length and each list as its number of items.
+
 ## 0.4.3 (2026-11-03)
 
 ### Fixed

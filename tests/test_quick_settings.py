@@ -214,3 +214,8 @@ def test_a_text_box_in_explorer_still_counts(h):
     h.quick.on_focus_changed(focus())
     h.quick.on_focus_changed(focus(process="explorer.exe", title="Documents"))
     assert h.quick.state().current_app == "explorer.exe"
+
+
+def test_state_carries_the_saved_toggle_shortcut(h):
+    h.config = _replace(h.config, hotkey_toggle="ctrl+shift+f9")
+    assert h.quick.state().toggle_hotkey == "ctrl+shift+f9"

@@ -26,6 +26,7 @@ from proofline.overlay_widgets import (
     POPUP_MAX_HEIGHT,
     IssuesPopup,
     _popup_position,
+    fix_all_text,
     issue_count_text,
     match_excerpt,
 )
@@ -596,3 +597,85 @@ def test_rewrite_link_asks_for_the_current_field(qtbot, harness):
     with qtbot.waitSignal(harness.controller.rewrite_requested) as blocker:
         harness.controller.popup.rewrite_requested.emit("formal")
     assert blocker.args == [snap, "formal"]
+
+
+TYPO = Match(11, 4, "Possible spelling mistake.", "Spelling", ("text",), "MORFOLOGIK_RULE_EN_US", "Typos", "test",
+             "TYPOS")
+
+
+def test_fix_all_shows_for_two_or_more_languagetool_fixes(qtbot, popup):
+    popup.show_issues((MATCH,), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, text="This are a test.")
+    assert fix_all_text(1) not in link_texts(popup)
+    popup.show_issues((MATCH, TYPO), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, text="This are a test.")
+    with qtbot.waitSignal(popup.fix_all_requested):
+        click_link(popup, fix_all_text(2))
+
+
+def test_fix_all_does_not_count_ai_findings(popup):
+    ai = issue_match("This", offset=0, replacement="That")
+    popup.show_issues((ai, MATCH), "Notepad", POPUP_ANCHOR, POPUP_BOUNDS, text="This are a test.")
+    assert not any(text.startswith("Fix all") for text in link_texts(popup))
+
+
+def test_fix_all_applies_every_first_suggestion_as_one_replacement(qtbot, harness):
+    snap = snapshot()  # "This are a test."
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, (TYPO, MATCH))
+    with qtbot.waitSignal(harness.controller.replace_requested) as blocker:
+        harness.popup.fix_all_requested.emit()
+    request = blocker.args[0]
+    assert (request.offset, request.error_text, request.replacement) == (5, "are a test", "is a text")
+    assert not request.from_ai
+
+
+def test_fix_all_with_nothing_to_fix_does_nothing(harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    harness.controller.on_checked(snap, ())
+    assert not harness.controller.fix_all()
+
+
+def test_adding_a_word_from_the_open_popup_shows_undo(harness):
+    open_popup(harness)
+    harness.popup.add_word_requested.emit(MATCH)
+    assert "to your dictionary" in harness.popup.notice_text
+
+
+def test_badge_click_while_checking_says_checking_not_no_issues(harness):
+    harness.controller.on_field_changed(snapshot())  # focused, no result yet
+    harness.badge.clicked.emit()
+    assert harness.popup.isVisible()
+    assert harness.popup._header.text() == CHECKING_STATUS
+    assert harness.popup._scroll.isHidden()
+
+
+def test_results_replace_the_checking_line_in_the_open_popup(harness):
+    snap = snapshot()
+    harness.controller.on_field_changed(snap)
+    harness.badge.clicked.emit()
+    harness.controller.on_checked(snap, (MATCH,))
+    assert harness.popup._header.text() == "1 issue"
+    assert not harness.popup._scroll.isHidden()
+
+
+def test_undo_notice_stays_while_the_mouse_is_on_it(harness):
+    from PyQt6.QtCore import QEvent, QPointF
+    from PyQt6.QtGui import QEnterEvent
+    from PyQt6.QtWidgets import QApplication
+
+    open_popup(harness)
+    harness.popup.show_notice_only("Checking is off in Notepad.", "disabled_apps", "notepad.exe")
+    assert harness.popup._notice_timer.isActive()
+    QApplication.sendEvent(harness.popup, QEnterEvent(QPointF(5, 5), QPointF(5, 5), QPointF(5, 5)))
+    assert not harness.popup._notice_timer.isActive()
+    QApplication.sendEvent(harness.popup, QEvent(QEvent.Type.Leave))
+    assert harness.popup._notice_timer.isActive()
+
+
+def test_hovering_the_issue_list_starts_no_close_timer(harness):
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtWidgets import QApplication
+
+    open_popup(harness)
+    QApplication.sendEvent(harness.popup, QEvent(QEvent.Type.Leave))
+    assert not harness.popup._notice_timer.isActive()

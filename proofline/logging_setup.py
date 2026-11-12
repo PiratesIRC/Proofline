@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import tempfile
 import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -17,6 +18,8 @@ from pathlib import Path
 from proofline.config import APP_DATA_DIR
 
 LOG_DIR = APP_DATA_DIR / "logs"
+# Used when LOG_DIR cannot be written, such as a portable copy in a read-only folder.
+FALLBACK_LOG_DIR = Path(tempfile.gettempdir()) / "Proofline" / "logs"
 LOG_FILE_NAME = "app.log"
 LOG_LEVEL_ENV = "PROOFLINE_LOG_LEVEL"
 LOG_TEXT_ENV = "PROOFLINE_LOG_TEXT"
@@ -55,14 +58,18 @@ def text_logging_enabled() -> bool:
     return _debug_mode.is_set() or env_setting(LOG_TEXT_ENV).strip() == "1"
 
 
-def setup_logging(log_dir: Path = LOG_DIR) -> tuple[logging.Handler, ...]:
-    """Attach file and console handlers to the root logger and return them."""
-    log_dir.mkdir(parents=True, exist_ok=True)
-    formatter = logging.Formatter(LOG_FORMAT)
+def setup_logging(log_dir: Path = LOG_DIR, fallback_dir: Path = FALLBACK_LOG_DIR) -> tuple[logging.Handler, ...]:
+    """Attach file and console handlers to the root logger and return them.
 
-    file_handler = RotatingFileHandler(
-        log_dir / LOG_FILE_NAME, maxBytes=MAX_LOG_BYTES, backupCount=LOG_BACKUPS, encoding="utf-8"
-    )
+    When log_dir cannot be written, the log goes to fallback_dir and its first line says why.
+    """
+    formatter = logging.Formatter(LOG_FORMAT)
+    try:
+        file_handler = _file_handler(log_dir)
+        unwritable = None
+    except OSError as exc:
+        file_handler = _file_handler(fallback_dir)
+        unwritable = exc
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
 
@@ -85,8 +92,25 @@ def setup_logging(log_dir: Path = LOG_DIR) -> tuple[logging.Handler, ...]:
     for noisy in NOISY_LOGGERS:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
+    if unwritable is not None:
+        logging.getLogger(__name__).warning("Could not write the log in %s (%s); logging here instead",
+                                            log_dir, unwritable)
     if console_level is None:
         logging.getLogger(__name__).warning(
             "Ignoring invalid %s=%r; using INFO", LOG_LEVEL_ENV, requested
         )
     return handlers
+
+
+def _file_handler(log_dir: Path) -> RotatingFileHandler:
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return RotatingFileHandler(log_dir / LOG_FILE_NAME, maxBytes=MAX_LOG_BYTES, backupCount=LOG_BACKUPS,
+                               encoding="utf-8")
+
+
+def current_log_path() -> Path | None:
+    """The file the root logger writes to, or None before setup_logging (or if it failed)."""
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, RotatingFileHandler):
+            return Path(handler.baseFilename)
+    return None

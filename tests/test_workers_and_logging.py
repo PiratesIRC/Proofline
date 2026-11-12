@@ -5,6 +5,7 @@ import pytest
 from proofline.logging_setup import (
     LOG_FILE_NAME,
     LOG_LEVEL_ENV,
+    current_log_path,
     set_debug_mode,
     setup_logging,
 )
@@ -102,3 +103,18 @@ def test_failed_task_logs_only_the_error_kind_not_its_text(qtbot, caplog):
     messages = " ".join(record.getMessage() for record in caplog.records)
     assert "auth" in messages and "AiError" in messages
     assert "SECRET-PROVIDER-TEXT" not in messages
+
+
+def test_log_goes_to_the_fallback_folder_when_the_data_folder_cannot_be_written(tmp_path):
+    blocked = tmp_path / "read-only"
+    blocked.write_text("a file where the log folder should be", encoding="utf-8")  # mkdir fails
+    fallback = tmp_path / "fallback"
+    handlers = setup_logging(blocked / "logs", fallback_dir=fallback)
+    try:
+        logging.getLogger("probe").warning("hello fallback")
+        assert "hello fallback" in (fallback / LOG_FILE_NAME).read_text(encoding="utf-8")
+        assert current_log_path() == fallback / LOG_FILE_NAME
+    finally:
+        for handler in handlers:
+            logging.getLogger().removeHandler(handler)
+            handler.close()

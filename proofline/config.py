@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime
@@ -31,6 +32,7 @@ log = logging.getLogger(__name__)
 APP_DIR_NAME = "Proofline"
 PORTABLE_MARKER = "portable.txt"  # shipped beside Proofline.exe in the portable zip only
 PORTABLE_DATA_DIR_NAME = "data"
+BACKUP_SUFFIX = ".bak"  # config.json.bak: the file as it was before a failed load
 
 
 def app_data_dir(
@@ -258,10 +260,14 @@ class Config:
     defaults_version: int = DEFAULTS_VERSION  # the ADDED_DISABLED_APPS already applied
 
     def __repr__(self) -> str:
-        values = ", ".join(
-            f"{f.name}={redact_url(getattr(self, f.name)) if f.name in URL_FIELDS else getattr(self, f.name)!r}"
-            for f in fields(self)
-        )
+        """For the log: addresses without credentials, and list settings (the personal dictionary,
+        window titles) as counts unless text logging is on."""
+        # Imported here: logging_setup imports this module.
+        from proofline.logging_setup import text_logging_enabled
+
+        full_lists = text_logging_enabled()
+        values = ", ".join(f"{f.name}={_logged_value(f.name, getattr(self, f.name), full_lists)}"
+                           for f in fields(self))
         return f"Config({values})"
 
     def ai_model_for(self, pid: str) -> str:
@@ -302,6 +308,14 @@ class Config:
             return True
         title = window_title.casefold()
         return any(entry.casefold() in title for entry in self.disabled_windows)
+
+
+def _logged_value(name: str, value: object, full_lists: bool) -> str:
+    if name in URL_FIELDS:
+        return repr(redact_url(value))
+    if name in LIST_FIELDS and not full_lists:
+        return f"<{len(value)} item{'' if len(value) == 1 else 's'}>"
+    return repr(value)
 
 
 def redact_url(url: str) -> str:
@@ -492,7 +506,11 @@ def _string_tuple(values: object, name: str) -> tuple[str, ...]:
 
 
 def load_config(path: Path = CONFIG_PATH) -> Config:
-    """Read config.json, falling back to defaults when it is missing or invalid."""
+    """Read config.json, falling back to defaults when it is missing or invalid.
+
+    A bad value falls back to its default alone; the other settings are kept. A file that did
+    not load cleanly is first copied to config.json.bak, since the next save overwrites it.
+    """
     if not path.exists():
         log.info("No config at %s; using defaults", path)
         return Config()
@@ -500,19 +518,46 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         log.warning("Could not read %s (%s); using defaults", path, exc)
+        _back_up(path)
         return Config()
     if not isinstance(raw, dict):
         log.warning("%s does not contain a JSON object; using defaults", path)
+        _back_up(path)
         return Config()
 
     known = {f.name for f in fields(Config)}
     raw = _sanitize_ai(raw)
     raw.setdefault("defaults_version", LEGACY_DEFAULTS_VERSION)
+    values = {k: v for k, v in raw.items() if k in known}
     try:
-        return with_added_defaults(validate(Config(**{k: v for k, v in raw.items() if k in known})))
+        return with_added_defaults(validate(Config(**values)))
     except ConfigError as exc:
-        log.warning("Invalid setting in %s (%s); using defaults", path, exc)
-        return Config()
+        log.warning("Invalid setting in %s (%s); keeping the valid settings", path, exc)
+        _back_up(path)
+        return with_added_defaults(validate(Config(**_valid_values(values))))
+
+
+def _valid_values(values: dict) -> dict:
+    """The subset of values that validates, adding one setting at a time to the defaults."""
+    kept: dict = {}
+    for name, value in values.items():
+        try:
+            validate(Config(**kept, **{name: value}))
+        except ConfigError:
+            log.warning("Setting %s is not valid; using its default", name)
+            continue
+        kept[name] = value
+    return kept
+
+
+def _back_up(path: Path) -> None:
+    backup = path.with_name(path.name + BACKUP_SUFFIX)
+    try:
+        shutil.copyfile(path, backup)
+    except OSError as exc:
+        log.warning("Could not copy %s to %s (%s)", path, backup, exc)
+        return
+    log.warning("Copied the settings file as it was to %s", backup)
 
 
 def with_added_defaults(config: Config) -> Config:
@@ -538,7 +583,10 @@ def save_config(config: Config, path: Path = CONFIG_PATH) -> Config:
     validated = validate(config)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(path.name + ".tmp")
-    tmp_path.write_text(json.dumps(asdict(validated), indent=2), encoding="utf-8")
+    with tmp_path.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(asdict(validated), indent=2))
+        handle.flush()
+        os.fsync(handle.fileno())
     tmp_path.replace(path)
     log.info("Saved config to %s", path)
     return validated

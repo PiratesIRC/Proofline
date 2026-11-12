@@ -14,7 +14,7 @@ import comtypes
 import uiautomation as auto
 
 from proofline import win32_edit
-from proofline.clipboard import ClipboardError, paste_text, send_delete
+from proofline.clipboard import ClipboardError, paste_text, send_ctrl_v, send_delete
 from proofline.replace_request import ReplaceError, ReplaceRequest
 from proofline.uia_reader import (
     MAX_TEXT_CHARS,
@@ -44,10 +44,12 @@ def replace_in_focused_field(request: ReplaceRequest) -> None:
             _select_with_win32(control.NativeWindowHandle, request)
         else:
             _select_with_uia(text_pattern, request)
+        # The selection wait above can take up to SELECTION_TIMEOUT_S, and the clipboard backup
+        # more; the user may switch windows meanwhile, so check again right before each key.
         if request.replacement:
-            paste_text(request.replacement)
-        else:
-            send_delete()  # pasting an empty clipboard is not a reliable way to delete
+            paste_text(request.replacement, send_keys=lambda: _send_if_still_focused(request, send_ctrl_v))
+        else:  # pasting an empty clipboard is not a reliable way to delete
+            _send_if_still_focused(request, send_delete)
     except comtypes.COMError as exc:
         log.warning("UIA error while replacing: %s", exc)
         raise ReplaceError("The text field stopped responding; try again.") from exc
@@ -68,6 +70,11 @@ def _verified_control(request: ReplaceRequest) -> auto.Control:
     if foreground_window_title() != request.window_title:
         raise ReplaceError("A different window is now active.")
     return control
+
+
+def _send_if_still_focused(request: ReplaceRequest, send_keys: Callable[[], None]) -> None:
+    _verified_control(request)
+    send_keys()
 
 
 def _check_unchanged(current: str, request: ReplaceRequest) -> None:

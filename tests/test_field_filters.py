@@ -304,3 +304,47 @@ def test_text_with_letters_or_no_digits_is_checked(text):
 )
 def test_document_controls_still_use_help_text_id_and_class(overrides, reason):
     assert skip_reason(traits(control_type="DocumentControl", name="Ordinary title", **overrides)) == reason
+
+
+@pytest.mark.parametrize(
+    ("automation_id", "phrase"),
+    [
+        ("txtPassword", "password"),
+        ("userPassword", "password"),
+        ("loginPassword", "password"),
+        ("creditCardNumber", "credit card"),
+        ("myApiKey", "api key"),
+        ("userPin", "pin"),
+        ("APIKey", "apikey"),
+        ("txtTokenId", "token"),
+    ],
+)
+def test_camel_case_ids_with_a_sensitive_word_are_skipped(automation_id, phrase):
+    assert skip_reason(traits(automation_id=automation_id)) == f"sensitive field ({phrase})"
+
+
+@pytest.mark.parametrize("automation_id", ["msgBody", "spinnerText", "pinnedNote", "tokenizeInput", "txtDescription"])
+def test_camel_case_ids_without_a_sensitive_word_are_checked(automation_id):
+    assert skip_reason(traits(automation_id=automation_id)) == ""
+
+
+@pytest.mark.parametrize(("overrides", "phrase"), [
+    ({"automation_id": "txtUserName"}, "user name"),
+    ({"class_name": "loginEmail"}, "email"),
+])
+def test_camel_case_ids_of_sign_in_fields_are_skipped(overrides, phrase):
+    assert skip_reason(traits(**overrides)) == f"account field ({phrase})"
+
+
+@pytest.mark.parametrize(("automation_id", "phrase"), [
+    ("passWord", "password"),
+    ("PassCode", "passcode"),
+    ("txtPassPhrase", "pass phrase"),
+    ("SignInCode", "signincode"),
+])
+def test_ids_that_split_inside_a_sensitive_word_are_still_skipped(automation_id, phrase):
+    assert skip_reason(traits(automation_id=automation_id)) == f"sensitive field ({phrase})"
+
+
+def test_class_names_that_split_inside_a_sign_in_word_are_still_skipped():
+    assert skip_reason(traits(class_name="UserName")).startswith("account field (")
