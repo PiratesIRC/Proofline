@@ -2,6 +2,40 @@
 
 All notable changes to this project.
 
+## 0.4.5 (2026-11-13)
+
+### Changed
+- `THIRD-PARTY-NOTICES.txt` in the app folder now lists every bundled package. It was missing
+  annotated-types, typing-inspection, docstring-parser, opentelemetry-api, PyQt6-sip, PyQt6-Qt6
+  (it named only "Qt 6") and the PyInstaller bootloader. The build now stops when a bundled
+  package is not listed.
+- The app folder no longer includes setuptools and pygments, which the app never used.
+- With the Orange accent in light mode, buttons and the flyout's selected tiles now use black
+  text. White text on that orange was below the usual contrast guideline (3.1:1 where 4.5:1 is
+  recommended).
+
+### Fixed
+- Closing the **Add a text field…** window with Esc left it watching every focus change until
+  Proofline restarted, including while checking was paused. Esc now stops it, as Close does.
+- A server address the app could not parse (for example a port above 65535) put the whole
+  address, password included, into the log and the error message on every check. The password
+  is now removed from error text, and Settings refuses a port outside 1 to 65535.
+- An AI provider's "forbidden" answer (HTTP 403) was reported as "did not accept the API key" and
+  turned the AI links off until **Test** was pressed. Providers also send it when one text is
+  flagged by moderation, when the region is not supported, or when the key lacks access to one
+  model. The provider's own reason is now shown, and the AI links stay on.
+- When the program in front stopped responding, Proofline could stop checking every field,
+  in every app, until that program recovered or was closed (measured: a single read waited 60
+  seconds). It now skips a program that does not answer within a quarter of a second and checks
+  it again once it responds.
+- In **Settings › Shortcuts**, pressing a combination Proofline already uses ran that shortcut
+  instead of putting it in the box, so two shortcuts could not be swapped. Proofline's shortcuts
+  are now turned off while a shortcut box has the keyboard focus.
+- A correction could paste your own clipboard contents instead of the suggested word when the
+  program you were typing in was busy for more than about a third of a second (measured with a
+  0.7 second delay). Proofline now waits until the field shows the correction, for up to two
+  seconds, before it puts your clipboard back.
+
 ## 0.4.4 (2026-11-12)
 
 ### Added

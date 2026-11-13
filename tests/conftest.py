@@ -1,6 +1,7 @@
 import ctypes
 import ctypes.wintypes as wt
 import functools
+import gc
 import sys
 from pathlib import Path
 
@@ -53,3 +54,26 @@ def pytest_runtest_setup(item):
     # Before fixtures run, so the clipboard save/restore fixture never touches a locked clipboard.
     if item.get_closest_marker("clipboard") and session_is_locked():
         pytest.skip("the Windows session is locked, so the clipboard cannot be opened")
+
+
+def pytest_collection_finish(session):
+    """Move everything alive after collection (modules, Qt and SDK objects) out of the collector's
+    view, so the per-test collection below scans only what tests create: a full collection after
+    each test took the suite from about 30 s to 198 s (measured 2026-11-13)."""
+    gc.collect()
+    gc.freeze()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    """Free a test's garbage cycles right after its body, before pytest-qt processes events.
+
+    Objects such as a test's Harness hold windows in reference cycles, so only the cyclic
+    collector frees them. Left to run whenever it likes, it ran inside Qt painting one of those
+    windows and Python aborted (measured 2026-11-13, tests/test_qt_garbage_teardown.py). This
+    wrapper is inner to pytest-qt's (which is tryfirst), so it runs first after the body.
+    """
+    try:
+        return (yield)
+    finally:
+        gc.collect()

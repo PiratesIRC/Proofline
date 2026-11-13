@@ -2,6 +2,7 @@ import threading
 from dataclasses import replace
 
 import pytest
+from event_helpers import PollCounter, wait_for_polls
 from factories import focus_result, snapshot
 
 from proofline.config import Config
@@ -45,9 +46,10 @@ class FakeReplacer:
 def make_monitor(qtbot):
     monitors = []
 
-    def make(reader, config=FAST_CONFIG):
+    def make(reader, config=FAST_CONFIG, clock=None):
         monitor = TextMonitor(
-            config, reader=reader, replacer=FakeReplacer(), poll_interval_s=FAST_POLL_S
+            config, reader=reader, replacer=FakeReplacer(), clock=clock or PollCounter(),
+            poll_interval_s=FAST_POLL_S,
         )
         monitors.append(monitor)
         return monitor
@@ -91,10 +93,10 @@ def test_disabled_app_produces_no_snapshot(qtbot, make_monitor):
 
 
 def test_paused_config_skips_reader_and_resumes(qtbot, make_monitor):
-    reader = ScriptedReader(focus_result())
-    monitor = make_monitor(reader, Config(debounce_ms=200, enabled=False))
+    reader, polls = ScriptedReader(focus_result()), PollCounter()
+    monitor = make_monitor(reader, Config(debounce_ms=200, enabled=False), clock=polls)
     monitor.start()
-    qtbot.wait(100)
+    wait_for_polls(qtbot, polls, 10)
     assert reader.calls == 0
     with qtbot.waitSignal(monitor.text_ready, timeout=2000):
         monitor.set_config(replace(monitor._config, enabled=True))
@@ -161,13 +163,14 @@ def test_short_text_is_not_checked_but_check_now_overrides(qtbot):
         Config(debounce_ms=200, min_words=2),
         reader=ScriptedReader(one_word),
         replacer=FakeReplacer(),
+        clock=(polls := PollCounter()),
         poll_interval_s=FAST_POLL_S,
     )
     ready = []
     monitor.text_ready.connect(ready.append)
     try:
         monitor.start()
-        qtbot.wait(500)
+        wait_for_polls(qtbot, polls, 40)  # at least 400 ms: twice the 200 ms typing pause
         assert ready == []
         with qtbot.waitSignal(monitor.text_ready, timeout=1000):
             monitor.request_check_now()
@@ -193,15 +196,15 @@ def test_setup_hint_emitted_once_per_change(qtbot):
 
 
 def test_focus_changed_emitted_on_new_focus_or_status(qtbot, make_monitor):
-    reader = ScriptedReader(focus_result())
-    monitor = make_monitor(reader)
+    reader, polls = ScriptedReader(focus_result()), PollCounter()
+    monitor = make_monitor(reader, clock=polls)
     seen = []
     monitor.focus_changed.connect(seen.append)
     monitor.start()
     qtbot.waitUntil(lambda: len(seen) == 1)
     reader.result = focus_result(None, reason="not a text control (ButtonControl)")
     qtbot.waitUntil(lambda: len(seen) == 2)
-    qtbot.wait(50)
+    wait_for_polls(qtbot, polls, 5)
     assert len(seen) == 2  # no repeats while nothing changes
 
 

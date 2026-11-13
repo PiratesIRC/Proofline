@@ -214,7 +214,10 @@ key (the user re-enters it), so a key saved for one server is never sent to a ne
   retry set. Gemini's bad-key status is ambiguous in Google's docs: 400 with a key-related reason,
   401 and 403 all mean "key not accepted". Unrecognised 4xx answers show the provider's own
   message, as Claude does today. Ollama and Other map 401/403 to "key not accepted" only when a key
-  was sent.
+  was sent. **Changed 2026-11-13:** 403 is no longer "key not accepted" for any provider. It shows
+  the provider's own message and leaves AI on, because providers also answer 403 for a moderation
+  flag (OpenRouter), an unsupported region (OpenAI) or a key without permission for one resource
+  (Claude). Only 401, and Gemini's key-related 400, still mean "key not accepted".
 - **AiService [review]:** the backend factory takes the provider, its address and its key;
   "a key is saved" and "the key was rejected" are remembered per provider and reset on a provider
   switch; Ollama and keyless Other are never refused with "Add an API key".

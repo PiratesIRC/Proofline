@@ -51,7 +51,11 @@ a = Analysis(
     # never has to generate them at runtime. win32cred.CredRead imports
     # win32timezone when called, too late for PyInstaller to see it.
     hiddenimports=collect_submodules("comtypes.gen") + ["win32timezone"],
-    excludes=["tkinter", "pytest", "pytestqt", "_pytest", "ruff"],
+    # setuptools arrives through a PyInstaller hook and brings packaging, jaraco, wheel and
+    # more; pygments arrives through httpx2's command-line tool. The app uses neither, and
+    # both come from the development environment, so a build would depend on its tools.
+    excludes=["tkinter", "pytest", "pytestqt", "_pytest", "ruff",
+              "setuptools", "pkg_resources", "distutils", "pygments"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

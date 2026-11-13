@@ -16,7 +16,7 @@ from functools import lru_cache
 import comtypes
 import uiautomation as auto
 
-from proofline import win32_edit
+from proofline import win32_edit, window_response
 from proofline.app_names import process_path
 from proofline.config import custom_field_matches, field_signature
 from proofline.field_filters import FieldTraits
@@ -50,6 +50,7 @@ TOKEN_QUERY = 0x0008
 TOKEN_ELEVATION_CLASS = 20
 ERROR_ACCESS_DENIED = 5
 ELEVATED_REASON = "app runs as administrator; Windows blocks reading it from a normal app"
+NOT_RESPONDING_REASON = "app is not responding"
 GA_ROOT = 2
 MAX_TITLE_CHARS = 512
 
@@ -88,6 +89,9 @@ def read_focused_field(custom_fields: tuple[str, ...] = (), diagnose: bool = Fal
     """
     global _last_control
     _last_control = None
+    hwnd = window_response.focused_window()
+    if window_response.not_responding(hwnd):  # a UIA call would block until that program recovers
+        return FocusResult((hwnd,), "window", NOT_RESPONDING_REASON)
     try:
         focused = auto.GetFocusedControl()
         if focused is None:

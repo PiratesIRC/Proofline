@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -17,6 +18,7 @@ MAX_REPLACEMENTS = 5
 MAX_ERROR_BODY_CHARS = 200
 BMP_MAX_CODEPOINT = 0xFFFF
 PICKY_LEVEL = "picky"
+MIN_HIDDEN_USER_CHARS = 3  # shorter user names are left in error text; replacing "a" would garble it
 
 # LanguageToolError.kind values: what went wrong, for callers that explain it to the user.
 ERROR_TIMEOUT = "timeout"
@@ -74,6 +76,18 @@ class LanguageToolClient:
         self._disabled_categories = disabled_categories
         self._picky = picky
 
+    def _clean(self, exc: Exception) -> str:
+        """The exception's text without the server URL's user name and password.
+
+        requests puts the whole URL into some messages (InvalidURL: "Failed to parse: <url>").
+        """
+        text = str(exc).replace(self._server_url, redact_url(self._server_url))
+        parsed = urlparse(self._server_url)
+        for secret, min_chars in ((parsed.password, 1), (parsed.username, MIN_HIDDEN_USER_CHARS)):
+            if secret and len(secret) >= min_chars:
+                text = text.replace(secret, "***")
+        return text
+
     def _form_data(self, text: str) -> dict[str, str]:
         """Build the POST form; optional keys are added only when they change server behaviour."""
         data = {"text": text, "language": self._language}
@@ -98,23 +112,24 @@ class LanguageToolClient:
                 timeout=self._timeout,
             )
         except requests.Timeout as exc:
-            log.warning("Request to %s timed out: %s", safe_url, exc)
+            log.warning("Request to %s timed out: %s", safe_url, self._clean(exc))
             raise LanguageToolError(
                 f"No response from {safe_url} within {self._timeout:g} seconds.", ERROR_TIMEOUT
             ) from exc
         except requests.exceptions.SSLError as exc:
-            log.warning("Secure connection to %s failed: %s", safe_url, exc)
+            log.warning("Secure connection to %s failed: %s", safe_url, self._clean(exc))
             raise LanguageToolError(
                 f"Secure connection to {safe_url} failed. Check the address and the server's certificate.", ERROR_SSL
             ) from exc
         except requests.ConnectionError as exc:
-            log.warning("Could not connect to %s: %s", safe_url, exc)
+            log.warning("Could not connect to %s: %s", safe_url, self._clean(exc))
             raise LanguageToolError(
                 f"Could not connect to {safe_url}. Check the URL and that the server is running.", ERROR_CONNECT
             ) from exc
         except requests.RequestException as exc:
-            log.warning("Request to %s failed: %s", safe_url, exc)
-            raise LanguageToolError(f"Could not reach LanguageTool server: {exc}") from exc
+            detail = self._clean(exc)
+            log.warning("Request to %s failed: %s", safe_url, detail)
+            raise LanguageToolError(f"Could not reach LanguageTool server: {detail}") from exc
 
         if response.status_code != 200:
             body = response.text[:MAX_ERROR_BODY_CHARS]

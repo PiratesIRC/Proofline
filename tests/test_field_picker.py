@@ -1,7 +1,9 @@
 from dataclasses import replace
 
 import pytest
+from event_helpers import PollCounter, wait_for_polls
 from factories import focus_result, snapshot
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QGuiApplication
 
 from proofline.config import Config, ConfigError, field_signature, save_config
@@ -74,6 +76,22 @@ def test_dialog_starts_and_stops_capture(qtbot, dialog):
         dialog.close()
 
 
+def test_escape_stops_capture(qtbot, dialog):
+    """Esc on a QDialog hides it through reject() without a closeEvent (measured 2026-11-13)."""
+    dialog.open_picker()
+    with qtbot.waitSignal(dialog.capture_stopped, timeout=1000):
+        qtbot.keyClick(dialog, Qt.Key.Key_Escape)
+    assert not dialog.isVisible()
+
+
+def test_capture_stopped_once_per_close(qtbot, dialog):
+    stops = []
+    dialog.capture_stopped.connect(lambda: stops.append(1))
+    dialog.open_picker()
+    dialog.close()
+    assert stops == [1]
+
+
 def test_dialog_ignores_own_window_and_enables_right_buttons(qtbot, dialog):
     dialog.open_picker()
     dialog.on_captured(captured("focus is in this app"))
@@ -120,10 +138,12 @@ class Reader:
 
 def test_capture_reports_even_when_paused_and_excluded(qtbot):
     reader = Reader(captured("ok via Text", process="mstsc.exe", snap=snapshot(process_name="mstsc.exe")))
-    monitor = TextMonitor(Config(enabled=False), reader=reader, replacer=lambda r: None, poll_interval_s=0.01)
+    polls = PollCounter()
+    monitor = TextMonitor(Config(enabled=False), reader=reader, replacer=lambda r: None, clock=polls,
+                          poll_interval_s=0.01)
     try:
         monitor.start()
-        qtbot.wait(100)
+        wait_for_polls(qtbot, polls, 10)
         assert reader.calls == 0  # paused and not capturing: nothing is read
         with qtbot.waitSignal(monitor.captured, timeout=1000) as blocker:
             monitor.start_capture()

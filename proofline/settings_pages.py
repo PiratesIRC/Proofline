@@ -423,6 +423,7 @@ class AppearancePage(Page):
 
 class ShortcutsPage(Page):
     title = "Shortcuts"
+    recording_changed = pyqtSignal(bool)  # from whichever shortcut box gained or lost focus
 
     def __init__(self) -> None:
         super().__init__()
@@ -430,6 +431,7 @@ class ShortcutsPage(Page):
         self._loaded: dict[str, str] = {}  # the shortcuts as last loaded, to tell typed edits apart
         for field, label in HOTKEY_FIELDS:
             edit = HotkeyRecorder()
+            edit.recording_changed.connect(self.recording_changed.emit)
             edit.setMinimumWidth(COMBO_WIDTH)
             self._edits[field] = edit
             self._card(SettingCard(label, HOTKEY_DESCRIPTIONS.get(field, ""), edit, keywords="hotkey keyboard"))

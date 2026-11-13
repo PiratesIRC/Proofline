@@ -342,6 +342,12 @@ def normalize_server_url(url: str) -> str:
             "Server URL must start with http:// or https:// and include a host, "
             "e.g. http://127.0.0.1:8010/v2/check"
         )
+    try:
+        port = parsed.port  # raises ValueError for a port that is not a number from 0 to 65535
+    except ValueError:
+        port = 0
+    if port == 0:  # None means no port was written; 0 cannot be connected to
+        raise ConfigError("The port in the server URL must be a number from 1 to 65535.")
     path = parsed.path.rstrip("/")
     if path in ("", "/v2"):
         path = CHECK_ENDPOINT

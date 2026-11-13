@@ -221,7 +221,7 @@ class RaisingMessages:
     ("make_error", "kind"),
     [
         (lambda: status_error(anthropic.AuthenticationError, 401), "auth"),
-        (lambda: status_error(anthropic.PermissionDeniedError, 403), "auth"),
+        (lambda: status_error(anthropic.PermissionDeniedError, 403), "rejected"),
         (lambda: status_error(anthropic.RateLimitError, 429), "rate_limit"),
         (lambda: status_error(anthropic.BadRequestError, 400), "rejected"),
         (lambda: status_error(anthropic.InternalServerError, 500), "server"),

@@ -28,12 +28,12 @@ from PyQt6.QtWidgets import (
 from proofline.config import DEFAULT_HOTKEY_TOGGLE, DEFAULT_TRAY_COLOR, LANGUAGES
 from proofline.hotkeys import display_hotkey
 from proofline.ui_kit import (
-    DARK,
     apply_style,
     current_tokens,
     link_button,
     readable_accent,
     set_object_name,
+    text_on_accent,
 )
 from proofline.window_corners import round_corners
 
@@ -398,7 +398,7 @@ class TrayFlyout(QWidget):
         apply_style(self, accent)
         tokens = current_tokens()
         fill = readable_accent(accent, tokens)
-        on_fill = "#000000" if tokens is DARK else "#ffffff"
+        on_fill = text_on_accent(fill, tokens)
         self._badge.setStyleSheet(
             f"background: {fill}; color: {on_fill}; border-radius: {BADGE_SIZE // 2}px;"
             " font-weight: 600;"

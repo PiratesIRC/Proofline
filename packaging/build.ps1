@@ -39,6 +39,9 @@ try {
     & $Python packaging\make_icon.py build\app.ico ; if ($LASTEXITCODE -ne 0) { throw 'Icon build failed' }
     & $Python -m PyInstaller --noconfirm --clean --distpath dist --workpath build\pyinstaller packaging\$Name.spec
     if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }
+    # Every bundled third-party package must be named in THIRD-PARTY-NOTICES.txt.
+    & $Python scripts\check_notices.py "dist\$Name\$Name.exe" packaging\THIRD-PARTY-NOTICES.txt
+    if ($LASTEXITCODE -ne 0) { throw 'THIRD-PARTY-NOTICES.txt does not cover the bundle' }
     $Version = & $Python -c "import proofline; print(proofline.__version__)"
     # GPL-3.0: binary releases carry the license text and the third-party notices.
     Copy-Item (Join-Path $Root 'LICENSE') (Join-Path $Root "dist\$Name\LICENSE.txt")

@@ -129,7 +129,14 @@ class CategoryChecklist(QWidget):
 
 
 class HotkeyRecorder(QLineEdit):
-    """Records the next key combination pressed while focused. Backspace or Delete clears it."""
+    """Records the next key combination pressed while focused. Backspace or Delete clears it.
+
+    recording_changed(True) on focus in, (False) on focus out (also when the window loses
+    activation): Proofline's global shortcuts are released meanwhile, because Windows delivers a
+    registered combination to its owner and the box would never see it (measured 2026-11-13).
+    """
+
+    recording_changed = pyqtSignal(bool)
 
     def __init__(self) -> None:
         super().__init__()
@@ -158,6 +165,11 @@ class HotkeyRecorder(QLineEdit):
     def focusInEvent(self, event: QFocusEvent) -> None:
         super().focusInEvent(event)
         self.setPlaceholderText(RECORDER_PROMPT)
+        self.recording_changed.emit(True)
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        super().focusOutEvent(event)
+        self.recording_changed.emit(False)
 
 
 def custom_field_label(signature: str) -> str:

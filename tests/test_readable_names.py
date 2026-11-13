@@ -2,7 +2,7 @@
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtGui import QFocusEvent, QKeyEvent
 
 from proofline.app_names import running_apps
 from proofline.config import Config, rule_label, with_rule_label
@@ -114,3 +114,28 @@ def test_checking_page_links_to_rule_and_category_documentation(qtbot, tmp_path)
     window.show_settings()
     assert "rule/list?lang=en-US" in window.checking.rules_link.text()
     assert "Categories.java" in window.checking.categories_link.text()
+
+
+def test_recorder_reports_when_it_starts_and_stops_recording(qtbot):
+    """Global shortcuts swallow their own combination, so they are released while a box records."""
+    recorder = HotkeyRecorder()
+    qtbot.addWidget(recorder)
+    seen = []
+    recorder.recording_changed.connect(seen.append)
+    recorder.focusInEvent(QFocusEvent(QFocusEvent.Type.FocusIn))
+    recorder.focusOutEvent(QFocusEvent(QFocusEvent.Type.FocusOut))
+    assert seen == [True, False]
+
+
+def test_settings_window_passes_on_shortcut_recording(qtbot):
+    from proofline.config import Config
+    from proofline.settings_window import SettingsWindow
+
+    window = SettingsWindow(lambda: Config(), lambda config: config)
+    qtbot.addWidget(window)
+    seen = []
+    window.shortcut_recording.connect(seen.append)
+    box = next(iter(window.shortcuts._edits.values()))
+    box.focusInEvent(QFocusEvent(QFocusEvent.Type.FocusIn))
+    box.focusOutEvent(QFocusEvent(QFocusEvent.Type.FocusOut))
+    assert seen == [True, False]

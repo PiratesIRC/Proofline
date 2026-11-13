@@ -149,3 +149,31 @@ def test_add_to_dictionary_only_offered_for_spelling(qtbot):
 def test_integration_registers_the_ai_rephrase_hotkey(integration):
     integration.apply(Config(hotkey_ai_rephrase="ctrl+alt+r"))
     assert integration.fake_hotkeys.registered["ai_rephrase"] == "ctrl+alt+r"
+
+
+def test_shortcuts_are_released_while_a_shortcut_box_records(integration):
+    """Measured 2026-11-13: a registered combination ran its action and never reached the box."""
+    integration.apply(Config())
+    integration.set_hotkeys_suspended(True)
+    assert integration.fake_hotkeys.registered == {}
+    integration.set_hotkeys_suspended(False)
+    assert integration.fake_hotkeys.registered == {"toggle": "ctrl+alt+p", "fix_first": "ctrl+alt+j"}
+
+
+def test_shortcuts_applied_while_suspended_are_registered_on_resume(integration):
+    before = Config()
+    integration.apply(before)
+    integration.set_hotkeys_suspended(True)
+    integration.apply(replace(before, hotkey_toggle="ctrl+alt+k"), before)
+    assert integration.fake_hotkeys.registered == {}
+    integration.set_hotkeys_suspended(False)
+    assert integration.fake_hotkeys.registered["toggle"] == "ctrl+alt+k"
+
+
+def test_resuming_does_not_report_a_taken_shortcut_again(integration):
+    """apply() already reported it; focus leaving a shortcut box must not notify each time."""
+    integration.apply(Config())
+    count = len(integration.notes)
+    integration.set_hotkeys_suspended(True)
+    integration.set_hotkeys_suspended(False)
+    assert len(integration.notes) == count  # ctrl+alt+l is still taken by another app

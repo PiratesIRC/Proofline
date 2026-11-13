@@ -152,13 +152,25 @@ def _put_text(text: str) -> None:
         raise ClipboardError(f"The correction could not be put on the clipboard: {exc}") from exc
 
 
-def paste_text(text: str, send_keys: Callable[[], None] = send_ctrl_v) -> None:
-    """Replace the target app's selection with `text`, leaving the clipboard as it was."""
+def paste_text(
+    text: str,
+    send_keys: Callable[[], None] = send_ctrl_v,
+    wait_until_pasted: Callable[[], None] | None = None,
+) -> None:
+    """Replace the target app's selection with `text`, leaving the clipboard as it was.
+
+    wait_until_pasted returns once the target shows the paste (or gives up); without it a fixed
+    PASTE_SETTLE_S is waited. A program busy for longer than that pastes the restored clipboard
+    instead of the correction (measured 2026-11-13 with a 0.7 s busy period).
+    """
     backup = backup_clipboard()
     try:
         _put_text(text)  # empties the clipboard first, so a failure here must still restore it
         send_keys()
-        time.sleep(PASTE_SETTLE_S)
+        if wait_until_pasted is None:
+            time.sleep(PASTE_SETTLE_S)
+        else:
+            wait_until_pasted()
     finally:
         _restore_with_retries(backup)
 

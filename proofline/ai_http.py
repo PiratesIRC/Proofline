@@ -227,7 +227,9 @@ def _credentials(headers: Mapping[str, str]) -> tuple[str, ...]:
 
 def _kind(status: int, detail: str, code: str, key_sent: bool, key_hint_400: bool) -> str:
     key_400 = status == 400 and key_hint_400 and any(hint in detail for hint in KEY_HINTS)
-    if status in (401, 403) or key_400:
+    # 403 is not "auth": providers also use it for a moderation flag (OpenRouter), an unsupported
+    # region (OpenAI) or a key without permission for one model (Claude); their text says which.
+    if status == 401 or key_400:
         return "auth" if key_sent else "rejected"
     if status == 402 or (status == 429 and code == CREDIT_CODE):
         return "credit"

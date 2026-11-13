@@ -243,6 +243,15 @@ def test_rejected_key_hides_ai_until_the_key_changes_or_a_request_succeeds(qtbot
     assert h.service.available()
 
 
+def test_a_refused_request_keeps_ai_available(qtbot, tmp_path):
+    """A 403 is "rejected" (a moderation flag, a region, a permission), not a bad key."""
+    backend = FakeBackend(error=AiError("rejected", "OpenRouter refused the request: Input was flagged"))
+    h = Harness(qtbot, tmp_path, backend)
+    with qtbot.waitSignal(h.service.failed):
+        h.service.submit(request())
+    assert h.service.available()
+
+
 def test_key_only_loaded_for_selected_provider(qtbot, tmp_path):
     loads, specs = [], []
 

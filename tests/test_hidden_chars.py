@@ -1,4 +1,5 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from factories import snapshot
@@ -122,11 +123,11 @@ def test_empty_replacement_deletes_instead_of_pasting(monkeypatch, replacement, 
         NativeWindowHandle = 0
 
         def GetPattern(self, _id):
-            return object()
+            return SimpleNamespace(DocumentRange=SimpleNamespace(GetText=lambda _max: "field text"))
 
     monkeypatch.setattr(text_replace, "_verified_control", lambda _request: Control())
     monkeypatch.setattr(text_replace, "_select_with_uia", lambda _pattern, _request: None)
-    monkeypatch.setattr(text_replace, "paste_text", lambda text, send_keys=None: keys.append(f"paste {text}"))
+    monkeypatch.setattr(text_replace, "paste_text", lambda text, send_keys=None, wait_until_pasted=None: keys.append(f"paste {text}"))
     monkeypatch.setattr(text_replace, "send_delete", lambda: keys.append("delete"))
     text_replace.replace_in_focused_field(ReplaceRequest((1,), "w", "a" + ZWSP + "b", 1, 1, ZWSP, replacement))
     assert keys == expected

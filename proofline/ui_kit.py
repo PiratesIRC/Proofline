@@ -119,6 +119,15 @@ def contrast_ratio(first: str, second: str) -> float:
     return (light + 0.05) / (dark + 0.05)
 
 
+def text_on_accent(fill: str, tokens: Tokens) -> str:
+    """Text colour for labels on an accent fill: the theme's choice (white in light mode, black in
+    dark) unless it reads below 4.5:1 there, then whichever of the two reads better (Orange)."""
+    preferred, other = ("#000000", "#ffffff") if tokens is DARK else ("#ffffff", "#000000")
+    if contrast_ratio(preferred, fill) >= LINK_MIN_CONTRAST:
+        return preferred
+    return max((preferred, other), key=lambda colour: contrast_ratio(colour, fill))
+
+
 def link_colour(accent: str, tokens: Tokens) -> str:
     """The accent for links when it reads at 4.5:1 or better on both the window and the cards, else the theme link colour."""
     fill = readable_accent(accent, tokens)
@@ -150,7 +159,7 @@ def set_link_text(label: QLabel, html: str) -> None:
 def stylesheet(tokens: Tokens, accent: str) -> str:
     t = tokens
     fill = readable_accent(accent, t)
-    on_fill = "#000000" if t is DARK else "#ffffff"
+    on_fill = text_on_accent(fill, t)
     return f"""
     QWidget#uiRoot {{ background: {t.window}; color: {t.text}; }}
     QWidget#uiRoot QLabel {{ color: {t.text}; background: transparent; }}

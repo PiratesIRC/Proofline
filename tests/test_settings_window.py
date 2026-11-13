@@ -3,6 +3,7 @@ import winreg
 from dataclasses import replace
 
 import pytest
+from event_helpers import run_events_posted_so_far
 from PyQt6.QtCore import Qt, QThreadPool
 from PyQt6.QtGui import QGuiApplication, QIcon, QPixmap
 
@@ -243,7 +244,7 @@ def test_stale_connection_result_is_discarded(qtbot, window, monkeypatch):
     window.general._url.setText("http://other")
     release.set()
     QThreadPool.globalInstance().waitForDone(5000)
-    qtbot.wait(50)
+    run_events_posted_so_far(qtbot)  # the old test's result has now been handled
     assert "Ready" not in status_text(window)
 
 

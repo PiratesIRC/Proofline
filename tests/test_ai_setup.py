@@ -114,6 +114,15 @@ def make(qtbot, tmp_path):
     return build
 
 
+
+def tasks_started_by(action):
+    """(action's result, background tasks it started). A task stays in workers._active_tasks until
+    its result is handled on the event loop, which cannot happen while action runs."""
+    before = set(workers._active_tasks)
+    result = action()
+    return result, set(workers._active_tasks) - before
+
+
 def test_page_starts_with_the_saved_state(make):
     rig = make(key="sk-ant-saved")
     assert rig.page.key_saved_label.isVisible()
@@ -453,8 +462,8 @@ def test_openrouter_selected_at_startup_fetches_its_prices_once(qtbot, make):
 
 
 def test_openrouter_not_selected_at_startup_fetches_nothing(qtbot, make):
-    rig = make(config=Config(ai_enabled=True, ai_provider="anthropic"))
-    qtbot.wait(20)
+    rig, started = tasks_started_by(lambda: make(config=Config(ai_enabled=True, ai_provider="anthropic")))
+    assert started == set()
     assert rig.list_calls == []
 
 
@@ -692,8 +701,8 @@ def test_turning_ai_on_with_openrouter_selected_fetches_its_models_once(qtbot, m
 
 def test_turning_ai_on_with_another_provider_fetches_nothing(qtbot, make):
     rig = make(config=Config(ai_enabled=False, ai_provider="anthropic"))
-    rig.page.enabled_switch.click()
-    qtbot.wait(20)
+    _, started = tasks_started_by(rig.page.enabled_switch.click)
+    assert started == set()
     assert rig.list_calls == []
 
 
@@ -723,8 +732,8 @@ def test_a_pending_retry_does_nothing_if_ai_was_turned_off_meanwhile(qtbot, make
     rig = make(config=config, list_models=failing_models)
     qtbot.waitUntil(lambda: not workers._active_tasks and len(rig.list_calls) == 1)
     rig.state["config"] = replace(rig.state["config"], ai_enabled=False)
-    timer.scheduled[0][1]()
-    qtbot.wait(20)
+    _, started = tasks_started_by(timer.scheduled[0][1])  # the 30 seconds pass
+    assert started == set()
     assert len(rig.list_calls) == 1
 
 

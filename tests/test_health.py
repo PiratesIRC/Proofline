@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import threading
 
+from event_helpers import run_events_posted_so_far
+from PyQt6.QtCore import QThreadPool
 from PyQt6.QtGui import QIcon
 
 from proofline.config import Config
@@ -97,7 +99,8 @@ def test_superseded_probe_result_is_ignored(qtbot):
             health.check_now()
         gate.set()
         qtbot.waitUntil(finished.is_set, timeout=WAIT_MS)
-        qtbot.wait(20)
+        QThreadPool.globalInstance().waitForDone(WAIT_MS)
+        run_events_posted_so_far(qtbot)  # the stale failure's result has now been handled
     assert health.is_healthy is True
 
 

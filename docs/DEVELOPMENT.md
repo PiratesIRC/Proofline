@@ -91,8 +91,12 @@ dependency on purpose: install the new version, run the full test suite, regener
 the `uv pip compile` command in its header, and commit the lock with the change.
 
 `build.ps1` runs PyInstaller (`packaging/Proofline.spec`, a one-folder windowed build in
-`dist\Proofline\`) and then makes the two release files and `dist\SHA256SUMS.txt` (their
-sha256, checked and uploaded by `scripts/gh_release.py create`):
+`dist\Proofline\`). It then runs `scripts/check_notices.py`, which reads the module archive inside
+the built exe and stops the build when a bundled third-party package is not listed in
+`packaging/THIRD-PARTY-NOTICES.txt` (add the package there, with its license, or exclude it in the
+spec). The spec excludes setuptools and pygments: the app uses neither, and they would otherwise
+come in from the development environment. Last, it makes the two release files and
+`dist\SHA256SUMS.txt` (their sha256, checked and uploaded by `scripts/gh_release.py create`):
 
 - `dist\Proofline-<version>-portable.zip`: the app folder plus `portable.txt`, which makes the app
   keep its settings in `data\` next to the exe (`config.app_data_dir`).

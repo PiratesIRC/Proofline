@@ -13,7 +13,7 @@ from collections.abc import Callable
 import comtypes
 import uiautomation as auto
 
-from proofline import win32_edit
+from proofline import win32_edit, window_response
 from proofline.clipboard import ClipboardError, paste_text, send_ctrl_v, send_delete
 from proofline.replace_request import ReplaceError, ReplaceRequest
 from proofline.uia_reader import (
@@ -33,6 +33,9 @@ CHARACTER = auto.TextUnit.Character
 SELECTION_TIMEOUT_S = 0.5
 SELECTION_POLL_S = 0.02
 MS_PER_S = 1000
+# After Ctrl+V the clipboard goes back only once the field shows the paste, or after this long.
+PASTE_CONFIRM_S = 2.0
+PASTE_POLL_S = 0.03
 
 
 def replace_in_focused_field(request: ReplaceRequest) -> None:
@@ -41,13 +44,17 @@ def replace_in_focused_field(request: ReplaceRequest) -> None:
         control = _verified_control(request)
         text_pattern = control.GetPattern(auto.PatternId.TextPattern)
         if text_pattern is None:
-            _select_with_win32(control.NativeWindowHandle, request)
+            hwnd = control.NativeWindowHandle
+            _select_with_win32(hwnd, request)
+            read = lambda: win32_edit.read_text(hwnd, MAX_TEXT_CHARS)
         else:
             _select_with_uia(text_pattern, request)
+            read = lambda: text_pattern.DocumentRange.GetText(MAX_TEXT_CHARS)
         # The selection wait above can take up to SELECTION_TIMEOUT_S, and the clipboard backup
         # more; the user may switch windows meanwhile, so check again right before each key.
         if request.replacement:
-            paste_text(request.replacement, send_keys=lambda: _send_if_still_focused(request, send_ctrl_v))
+            paste_text(request.replacement, send_keys=lambda: _send_if_still_focused(request, send_ctrl_v),
+                       wait_until_pasted=paste_waiter(read, read()))
         else:  # pasting an empty clipboard is not a reliable way to delete
             _send_if_still_focused(request, send_delete)
     except comtypes.COMError as exc:
@@ -59,6 +66,8 @@ def replace_in_focused_field(request: ReplaceRequest) -> None:
 
 
 def _verified_control(request: ReplaceRequest) -> auto.Control:
+    if window_response.not_responding(window_response.focused_window()):
+        raise ReplaceError("The app is not responding; try again when it is.")
     focused = auto.GetFocusedControl()
     control = None
     if focused is not None:
@@ -75,6 +84,32 @@ def _verified_control(request: ReplaceRequest) -> auto.Control:
 def _send_if_still_focused(request: ReplaceRequest, send_keys: Callable[[], None]) -> None:
     _verified_control(request)
     send_keys()
+
+
+def paste_waiter(
+    read: Callable[[], str],
+    before: str,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Callable[[], None]:
+    """A wait that returns once the field's text differs from `before` (the program has read the
+    clipboard), or after PASTE_CONFIRM_S. The field is not read while its program does not answer
+    (a UIA read would block until it does)."""
+    def wait() -> None:
+        started = clock()
+        while clock() - started < PASTE_CONFIRM_S:
+            if not window_response.not_responding(window_response.focused_window()):
+                try:
+                    if read() != before:
+                        log.debug("Paste confirmed after %.0f ms", (clock() - started) * MS_PER_S)
+                        return
+                except (comtypes.COMError, Win32EditError, OSError):
+                    pass  # the element is busy or changing; try again on the next round
+            sleep(PASTE_POLL_S)
+        log.warning("The field did not change within %.1f s of Ctrl+V; restoring the clipboard anyway",
+                    PASTE_CONFIRM_S)
+
+    return wait
 
 
 def _check_unchanged(current: str, request: ReplaceRequest) -> None:

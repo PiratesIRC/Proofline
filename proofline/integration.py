@@ -46,6 +46,8 @@ class DesktopIntegration(QObject):
         self._hotkeys = hotkeys or HotkeyManager()
         self._autostart = autostart
         self._hotkeys.triggered.connect(self.hotkey_triggered.emit)
+        self._hotkey_config: Config | None = None  # the shortcuts last applied
+        self._hotkeys_suspended = False
 
     def apply(self, config: Config, previous: Config | None = None) -> None:
         """Apply everything on startup (previous=None), otherwise only what changed."""
@@ -54,7 +56,9 @@ class DesktopIntegration(QObject):
         if previous is None or config.tray_color != previous.tray_color:
             self._tray.set_color(config.tray_color)
         if previous is None or _hotkeys(config) != _hotkeys(previous):
-            self._register_hotkeys(config)
+            self._hotkey_config = config
+            if not self._hotkeys_suspended:  # otherwise registered on resume
+                self._register_hotkeys(config)
         if previous is None or config.start_with_windows != previous.start_with_windows:
             self._sync_autostart(config.start_with_windows)
 
@@ -66,7 +70,19 @@ class DesktopIntegration(QObject):
     def shutdown(self) -> None:
         self._hotkeys.unregister_all()
 
-    def _register_hotkeys(self, config: Config) -> None:
+    def set_hotkeys_suspended(self, suspended: bool) -> None:
+        """Release the global shortcuts while a Settings shortcut box records keys, so pressing
+        one records it instead of running it; register them again afterwards, quietly (apply()
+        already reported any combination another app holds)."""
+        if suspended == self._hotkeys_suspended:
+            return
+        self._hotkeys_suspended = suspended
+        if suspended:
+            self._hotkeys.unregister_all()
+        elif self._hotkey_config is not None:
+            self._register_hotkeys(self._hotkey_config, notify=False)
+
+    def _register_hotkeys(self, config: Config, notify: bool = True) -> None:
         self._hotkeys.unregister_all()
         for action, field_name in HOTKEY_ACTIONS.items():
             combo = getattr(config, field_name)
@@ -77,7 +93,8 @@ class DesktopIntegration(QObject):
                 log.info("Shortcut %s -> %s", combo, action)
             except HotkeyError as exc:
                 log.warning("Could not register shortcut %s: %s", combo, exc)
-                self._notify(f"Shortcut {combo} could not be set: {exc}")
+                if notify:
+                    self._notify(f"Shortcut {combo} could not be set: {exc}")
 
     def _sync_autostart(self, enabled: bool) -> None:
         """Match the Run value to the setting. An entry pointing somewhere else (say, the

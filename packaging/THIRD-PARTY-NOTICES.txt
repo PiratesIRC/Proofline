@@ -5,28 +5,35 @@ Source code: https://github.com/PiratesIRC/Proofline
 
 This build includes the following third-party software, each under its own license:
 
-  Python            PSF License             https://www.python.org/
-  PyQt6             GPL-3.0                 https://www.riverbankcomputing.com/software/pyqt/
-  Qt 6              LGPL-3.0                https://www.qt.io/
-  uiautomation      Apache-2.0              https://github.com/yinkaisheng/Python-UIAutomation-for-Windows
-  comtypes          MIT                     https://github.com/enthought/comtypes
-  requests          Apache-2.0              https://github.com/psf/requests
-  urllib3           MIT                     https://github.com/urllib3/urllib3
-  certifi           MPL-2.0                 https://github.com/certifi/python-certifi
-  charset-normalizer MIT                    https://github.com/jawah/charset_normalizer
-  idna              BSD-3-Clause            https://github.com/kjd/idna
-  pywin32           PSF License             https://github.com/mhammond/pywin32
-  anthropic         Apache-2.0              https://github.com/anthropics/anthropic-sdk-python
-  httpx2            BSD-3-Clause            https://github.com/pydantic/httpx2
-  httpcore2         BSD-3-Clause            https://github.com/pydantic/httpx2
-  h11               MIT                     https://github.com/python-hyper/h11
-  anyio             MIT                     https://github.com/agronholm/anyio
-  sniffio           MIT OR Apache-2.0       https://github.com/python-trio/sniffio
-  truststore        MIT                     https://github.com/sethmlarson/truststore
-  jiter             MIT                     https://github.com/pydantic/jiter
-  pydantic          MIT                     https://github.com/pydantic/pydantic
-  pydantic_core     MIT                     https://github.com/pydantic/pydantic/tree/main/pydantic-core
-  typing_extensions PSF-2.0                 https://github.com/python/typing_extensions
+  Python              PSF License             https://www.python.org/
+  PyQt6               GPL-3.0                 https://www.riverbankcomputing.com/software/pyqt/
+  PyQt6-Qt6           LGPL-3.0                https://www.qt.io/ (the Qt 6 libraries)
+  PyQt6-sip           BSD-2-Clause            https://github.com/Python-SIP/sip
+  uiautomation        Apache-2.0              https://github.com/yinkaisheng/Python-UIAutomation-for-Windows
+  comtypes            MIT                     https://github.com/enthought/comtypes
+  requests            Apache-2.0              https://github.com/psf/requests
+  urllib3             MIT                     https://github.com/urllib3/urllib3
+  certifi             MPL-2.0                 https://github.com/certifi/python-certifi
+  charset-normalizer  MIT                     https://github.com/jawah/charset_normalizer
+  idna                BSD-3-Clause            https://github.com/kjd/idna
+  pywin32             PSF License             https://github.com/mhammond/pywin32
+  anthropic           Apache-2.0              https://github.com/anthropics/anthropic-sdk-python
+  httpx2              BSD-3-Clause            https://github.com/pydantic/httpx2
+  httpcore2           BSD-3-Clause            https://github.com/pydantic/httpx2
+  h11                 MIT                     https://github.com/python-hyper/h11
+  anyio               MIT                     https://github.com/agronholm/anyio
+  sniffio             MIT OR Apache-2.0       https://github.com/python-trio/sniffio
+  truststore          MIT                     https://github.com/sethmlarson/truststore
+  jiter               MIT                     https://github.com/pydantic/jiter
+  pydantic            MIT                     https://github.com/pydantic/pydantic
+  pydantic-core       MIT                     https://github.com/pydantic/pydantic/tree/main/pydantic-core
+  annotated-types     MIT                     https://github.com/annotated-types/annotated-types
+  typing-inspection   MIT                     https://github.com/pydantic/typing-inspection
+  typing-extensions   PSF-2.0                 https://github.com/python/typing_extensions
+  docstring-parser    MIT                     https://github.com/rr-/docstring_parser
+  opentelemetry-api   Apache-2.0              https://github.com/open-telemetry/opentelemetry-python
+  PyInstaller         GPL-2.0-or-later with the bootloader exception   https://pyinstaller.org/
+                      (only its bootloader, the small program that starts Proofline.exe, is included)
 
 Proofline works with a LanguageTool server, which is a separate program under the
 LGPL-2.1 and is not included: https://github.com/languagetool-org/languagetool

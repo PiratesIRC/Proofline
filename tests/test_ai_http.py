@@ -107,7 +107,8 @@ def test_client_ignores_proxy_environment(monkeypatch):
     ("status", "body", "key_sent", "kind"),
     [
         (401, {}, True, "auth"),
-        (403, {}, True, "auth"),
+        (403, {}, True, "rejected"),
+        (403, {}, False, "rejected"),
         (401, {}, False, "rejected"),
         (400, {"error": {"message": "API key not valid"}}, True, "auth"),
         (400, {"error": {"message": "API_KEY missing"}}, True, "auth"),
@@ -121,6 +122,14 @@ def test_client_ignores_proxy_environment(monkeypatch):
 )
 def test_error_for(status, body, key_sent, kind):
     assert error_for("Groq", status, body, key_sent, key_hint_400=True).kind == kind
+
+
+def test_a_403_shows_the_provider_reason_instead_of_blaming_the_key():
+    """OpenRouter answers 403 for a moderation flag, OpenAI for an unsupported region and Claude
+    for a key without permission (their error pages, read 2026-11-13); the key may be fine."""
+    error = error_for("OpenRouter", 403, {"error": {"message": "Input was flagged by moderation"}}, True)
+    assert error.kind == "rejected"
+    assert error.message == "OpenRouter refused the request: Input was flagged by moderation"
 
 
 def test_rejected_message_carries_the_provider_text():

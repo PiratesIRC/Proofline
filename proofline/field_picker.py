@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QFontDatabase, QGuiApplication, QShowEvent
+from PyQt6.QtGui import QFontDatabase, QGuiApplication, QHideEvent, QShowEvent
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -185,9 +185,10 @@ class FieldPickerDialog(QDialog):
         super().showEvent(event)
         self.capture_started.emit()
 
-    def closeEvent(self, event: QCloseEvent) -> None:
+    def hideEvent(self, event: QHideEvent) -> None:
+        # Not closeEvent: Esc hides a QDialog through reject() without one, which left capture on.
+        super().hideEvent(event)
         self.capture_stopped.emit()
-        super().closeEvent(event)
 
     def _show_result(self, result: FocusResult | None, assessment: Assessment | None) -> None:
         self._result = result

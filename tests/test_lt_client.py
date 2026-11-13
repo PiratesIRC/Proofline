@@ -252,3 +252,35 @@ def test_check_omits_empty_optional_params():
     client.check(TEXT)
     _, kwargs = session.post.call_args
     assert kwargs["data"] == {"text": TEXT, "language": "en-US"}
+
+
+SECRET_URL = "http://probeuser:s3cretPass@127.0.0.1:99999/v2/check"
+
+
+def test_an_unparsable_address_does_not_put_the_password_in_logs_or_messages(caplog):
+    """requests repeats the whole URL in InvalidURL ("Failed to parse: ..."), measured 2026-11-13.
+    Port 99999 fails while parsing, so no connection is attempted."""
+    client = LanguageToolClient(SECRET_URL, "en-US", session=requests.Session())
+    with caplog.at_level("DEBUG"), pytest.raises(LanguageToolError) as info:
+        client.check(TEXT)
+    assert "s3cretPass" not in str(info.value)
+    assert "s3cretPass" not in caplog.text
+    assert "probeuser" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.ConnectionError(f"Max retries exceeded with url: {SECRET_URL}"),
+        requests.Timeout(f"Read timed out: {SECRET_URL}"),
+        requests.exceptions.SSLError(f"bad cert for {SECRET_URL}"),
+        requests.TooManyRedirects(f"Exceeded redirects: {SECRET_URL}"),
+    ],
+)
+def test_no_error_kind_logs_the_password(caplog, error):
+    session = MagicMock(spec=requests.Session)
+    session.post.side_effect = error
+    client = LanguageToolClient(SECRET_URL, "en-US", session=session)
+    with caplog.at_level("DEBUG"), pytest.raises(LanguageToolError) as info:
+        client.check(TEXT)
+    assert "s3cretPass" not in str(info.value) + caplog.text

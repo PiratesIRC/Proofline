@@ -77,8 +77,8 @@ def test_unknown_hotkey_id_emits_nothing(qtbot, manager):
     hwnd = ctypes.c_void_p(int(manager.winId()))
 
     with qtbot.assertNotEmitted(manager.triggered):
-        ctypes.windll.user32.PostMessageW(hwnd, WM_HOTKEY, 9999, 0)
-        qtbot.wait(50)
+        # SendMessageW returns only after the window has handled the message, so no wait is needed.
+        ctypes.windll.user32.SendMessageW(hwnd, WM_HOTKEY, 9999, 0)
 
 
 def test_unregister_all_frees_combination(manager):

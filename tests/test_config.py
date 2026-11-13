@@ -29,7 +29,8 @@ def test_normalize_server_url(given, expected):
     assert normalize_server_url(given) == expected
 
 
-@pytest.mark.parametrize("bad", ["", "localhost:8010", "ftp://host/v2/check", "http://"])
+@pytest.mark.parametrize("bad", ["", "localhost:8010", "ftp://host/v2/check", "http://",
+                                 "http://u:p@host:99999/v2/check", "https://host:84a3", "http://host:0/v2/check"])
 def test_normalize_server_url_rejects_invalid(bad):
     with pytest.raises(ConfigError):
         normalize_server_url(bad)

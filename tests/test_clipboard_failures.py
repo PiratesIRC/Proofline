@@ -69,3 +69,16 @@ def test_a_busy_clipboard_is_restored_on_a_later_attempt(restore_fails):
     state["failures"] = 1
     paste_text("correction", send_keys=lambda: None)
     assert len(calls) == 2
+
+
+def test_the_clipboard_is_restored_only_after_the_paste_is_confirmed(monkeypatch):
+    """Measured 2026-11-13: a program busy for 0.7 s when Ctrl+V arrived pasted the restored
+    (old) clipboard after the fixed 0.3 s wait. The caller's waiter now runs before the restore."""
+    order = []
+    monkeypatch.setattr(clipboard, "backup_clipboard", lambda: BACKUP)
+    monkeypatch.setattr(clipboard, "_put_text", lambda text: order.append("write"))
+    monkeypatch.setattr(clipboard, "restore_clipboard", lambda backup: order.append("restore"))
+    monkeypatch.setattr(clipboard.time, "sleep", lambda s: order.append(f"sleep {s}"))
+    paste_text("correction", send_keys=lambda: order.append("ctrl+v"),
+               wait_until_pasted=lambda: order.append("confirmed"))
+    assert order == ["write", "ctrl+v", "confirmed", "restore"]  # no fixed wait when confirmed

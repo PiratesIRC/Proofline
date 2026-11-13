@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from proofline import text_replace
@@ -63,7 +65,7 @@ class FakeControl:
         return [1]
 
     def GetPattern(self, _pattern_id):
-        return object()
+        return SimpleNamespace(DocumentRange=SimpleNamespace(GetText=lambda _max: "field text"))
 
 
 @pytest.fixture
@@ -72,11 +74,13 @@ def window_switch_during_selection(monkeypatch):
     selection is confirmed. Records the keystrokes that reach the 'keyboard'."""
     titles = iter(["w", "other window"])
     sent = []
+    # The real check would message whatever window is in front on the test machine's desktop.
+    monkeypatch.setattr(text_replace.window_response, "not_responding", lambda hwnd: False)
     monkeypatch.setattr(text_replace.auto, "GetFocusedControl", FakeControl)
     monkeypatch.setattr(text_replace, "foreground_window_title", lambda: next(titles, "other window"))
     monkeypatch.setattr(text_replace, "_select_with_uia", lambda pattern, request: None)
     monkeypatch.setattr(text_replace, "send_delete", lambda: sent.append("delete"))
-    monkeypatch.setattr(text_replace, "paste_text", lambda text, send_keys=None: (
+    monkeypatch.setattr(text_replace, "paste_text", lambda text, send_keys=None, wait_until_pasted=None: (
         send_keys() if send_keys else None, sent.append(f"paste {text}")))
     return sent
 

@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from proofline import ui_kit
+from proofline.tray import TRAY_COLORS
 from proofline.ui_kit import (
     DARK,
     LIGHT,
@@ -12,6 +13,9 @@ from proofline.ui_kit import (
     contrast_ratio,
     link_colour,
     link_html,
+    readable_accent,
+    stylesheet,
+    text_on_accent,
 )
 
 LINK_HTML = '<a href="https://example.invalid/help">Help</a>'
@@ -139,3 +143,23 @@ def test_set_link_text_on_an_unstyled_label_sets_the_text_as_given(qtbot):
     qtbot.addWidget(label)
     set_link_text(label, '<a href="https://b.example">B</a>')
     assert label.text() == '<a href="https://b.example">B</a>'
+
+
+@pytest.mark.parametrize("tokens", [LIGHT, DARK], ids=["light", "dark"])
+@pytest.mark.parametrize("accent", list(TRAY_COLORS.values()), ids=list(TRAY_COLORS))
+def test_text_on_every_accent_fill_reads_at_4_5_to_1(accent, tokens):
+    fill = readable_accent(accent, tokens)
+    assert contrast_ratio(text_on_accent(fill, tokens), fill) >= 4.5
+
+
+def test_text_on_accent_keeps_the_theme_colour_when_it_passes():
+    assert text_on_accent("#2e7d32", LIGHT) == "#ffffff"
+    assert text_on_accent("#00838f", LIGHT) == "#ffffff"  # Teal: 4.52:1, still white
+    assert text_on_accent("#ffc697", DARK) == "#000000"
+
+
+def test_orange_accent_buttons_get_dark_text_in_light_mode():
+    """White on Orange #ef6c00 is 3.08:1 (measured 2026-11-13)."""
+    sheet = stylesheet(LIGHT, TRAY_COLORS["Orange"])
+    rule = next(line for line in sheet.splitlines() if "QPushButton#accentButton {" in line)
+    assert "color: #000000" in rule

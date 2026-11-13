@@ -41,7 +41,7 @@ immutable `Config` dataclass: every change creates a new object, saves it, then
 |---|---|
 | Entry point and wiring | `main.py`, `app.py`, `app_identity.py` (AppUserModelID for notifications) |
 | Configuration | `config.py` (dataclass, validation, defaults, JSON I/O), `logging_setup.py` |
-| Reading fields | `text_monitor.py` (thread, debounce, capture mode), `uia_reader.py` (UIA), `win32_edit.py` (classic Edit/RichEdit fallback), `field_filters.py` (address bars, search boxes, numeric, sensitive labels), `setup_hints.py`, `text_snapshot.py` (plain data types) |
+| Reading fields | `text_monitor.py` (thread, debounce, capture mode), `uia_reader.py` (UIA), `win32_edit.py` (classic Edit/RichEdit fallback), `window_response.py` (skips a poll, and refuses a correction, when the focused window's program does not answer an empty message within 250 ms; a UIA call would block until it recovers), `field_filters.py` (address bars, search boxes, numeric, sensitive labels), `setup_hints.py`, `text_snapshot.py` (plain data types) |
 | Checking | `checker.py` (last 32 results cached by settings and text), `lt_client.py` (HTTP API, UTF-16 offset mapping), `dictionary.py`, `hidden_chars.py` (local invisible-character and unusual-space matches, merged after the server answers), `health.py` (server health, outage notifications), `server_test.py` (Settings connection test) |
 | Overlay | `overlay_controller.py`, `badge.py`, `overlay_widgets.py` (issues popup, Undo notice), `underlines.py` + `underline_rects.py` + `underline_overlay.py` (wavy lines under flagged words), `issue_card.py` (card at the word holding the caret), `combined_fix.py` (Fix all and Accept all: several fixes pasted as one replacement), `app_names.py` (friendly app names), `non_activating.py`, `screen_coords.py` (physical → logical pixels) |
 | Corrections | `replace_request.py`, `text_replace.py`, `clipboard.py` |
@@ -117,7 +117,10 @@ window still have focus and the text at the offset still equals the flagged text
 range by character offset, falls back to finding the n-th occurrence, then waits up to 500 ms for
 the selection to read back exactly (Chromium applies `Select()` asynchronously). Only then does
 it paste. `clipboard.py` backs up every memory-based clipboard format, marks temporary content as
-excluded from clipboard history, sends Ctrl+V and restores the backup. Each clipboard open is
+excluded from clipboard history, sends Ctrl+V and restores the backup once `text_replace.paste_waiter`
+sees the field's text change (at most 2 s; the field is not read while its program does not
+answer). A fixed 0.3 s wait let a program busy for 0.7 s paste the restored clipboard instead of
+the correction (measured 2026-11-13). Each clipboard open is
 owned by a hidden message-only window that is destroyed when the clipboard closes; opening with
 no window lost the clipboard after a write about once in 30 opens.
 

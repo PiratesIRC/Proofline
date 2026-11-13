@@ -138,6 +138,7 @@ class LanguageToolApp(QObject):
 
         self._integration = integration or DesktopIntegration(qt_app, self._tray, self._notify)
         self._integration.hotkey_triggered.connect(self._on_hotkey)
+        self._settings.shortcut_recording.connect(self._integration.set_hotkeys_suspended)
 
         self._updates = updates or UpdateChecker(lambda: self._config.check_for_updates)
         self._updates.checked.connect(lambda info: self._show_update_status())

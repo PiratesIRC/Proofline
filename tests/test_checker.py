@@ -1,7 +1,9 @@
 import threading
 from dataclasses import replace
 
+from event_helpers import run_events_posted_so_far
 from factories import snapshot
+from PyQt6.QtCore import QThreadPool, QTimer
 
 from proofline.checker import MAX_ATTEMPTS, GrammarChecker
 from proofline.config import Config
@@ -27,6 +29,26 @@ def make_checker(behaviour, config=CONFIG):
         return FakeClient(behaviour)
 
     return GrammarChecker(lambda: config, factory), created
+
+
+class HeldRetries:
+    """Stands in for QTimer in proofline.checker: zero-delay calls run as usual, delayed retries are
+    held in `scheduled` until the test runs them."""
+
+    def __init__(self):
+        self.scheduled = []
+
+    def singleShot(self, msec, fn):
+        if msec == 0:
+            QTimer.singleShot(0, fn)
+        else:
+            self.scheduled.append(fn)
+
+
+def hold_retries(monkeypatch):
+    held = HeldRetries()
+    monkeypatch.setattr("proofline.checker.QTimer", held)
+    return held
 
 
 def test_check_emits_matches_for_snapshot(qtbot):
@@ -65,7 +87,8 @@ def test_superseded_result_is_dropped(qtbot):
     checker.check(snapshot(text="second"))
     qtbot.waitUntil(lambda: results == ["second"])
     release_first.set()
-    qtbot.wait(100)
+    QThreadPool.globalInstance().waitForDone(5000)
+    run_events_posted_so_far(qtbot)  # the first check's result has now been handled
     assert results == ["second"]
 
 
@@ -119,18 +142,19 @@ def test_a_failure_is_retried_quietly_before_it_is_reported(qtbot, monkeypatch):
 def test_failure_is_reported_once_after_three_attempts(qtbot, monkeypatch):
     monkeypatch.setattr("proofline.checker.RETRY_DELAY_MS", 0)
     behaviour, calls = counting_failures(99)
-    checker, _ = make_checker(behaviour)
+    checker, created = make_checker(behaviour)
     failures = []
     checker.failed.connect(failures.append)
     with qtbot.waitSignal(checker.failed):
         checker.check(snapshot())
-    qtbot.wait(100)
+    run_events_posted_so_far(qtbot)  # a fourth attempt, had one been scheduled, has started
+    assert len(created) == 3
     assert len(calls) == 3
     assert failures == ["No response"]
 
 
 def test_a_newer_check_cancels_the_retries_of_an_older_one(qtbot, monkeypatch):
-    monkeypatch.setattr("proofline.checker.RETRY_DELAY_MS", 200)
+    held = hold_retries(monkeypatch)
     attempts = []
 
     def behaviour(text):
@@ -139,28 +163,32 @@ def test_a_newer_check_cancels_the_retries_of_an_older_one(qtbot, monkeypatch):
             raise LanguageToolError("No response")
         return (MATCH,)
 
-    checker, _ = make_checker(behaviour)
+    checker, created = make_checker(behaviour)
     checker.check(snapshot(text="first"))
-    qtbot.waitUntil(lambda: attempts == ["first"])
+    qtbot.waitUntil(lambda: len(held.scheduled) == 1)  # the first check failed; its retry waits
     with qtbot.waitSignal(checker.checked):
         checker.check(snapshot(text="second"))
-    qtbot.wait(400)
+    held.scheduled[0]()  # the retry delay passes
+    assert len(created) == 2  # the retry started no request
     assert attempts == ["first", "second"]
 
 
-def test_a_timeout_is_reported_at_once_without_retry(qtbot):
+def test_a_timeout_is_reported_at_once_without_retry(qtbot, monkeypatch):
+    held = hold_retries(monkeypatch)
     calls = []
 
     def behaviour(text):
         calls.append(text)
         raise LanguageToolError("No response within 10 seconds.", ERROR_TIMEOUT)
 
-    checker, _ = make_checker(behaviour)
+    checker, created = make_checker(behaviour)
     failures = []
     checker.failed.connect(failures.append)
     with qtbot.waitSignal(checker.failed):
         checker.check(snapshot())
-    qtbot.wait(1200)  # longer than RETRY_DELAY_MS: a retry would have run by now
+    run_events_posted_so_far(qtbot)
+    assert held.scheduled == []
+    assert len(created) == 1
     assert len(calls) == 1
     assert failures == ["No response within 10 seconds."]
 
