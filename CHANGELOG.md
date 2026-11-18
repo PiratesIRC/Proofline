@@ -2,6 +2,13 @@
 
 All notable changes to this project.
 
+## 0.4.7 (2026-11-18)
+
+### Security
+- The bundled opentelemetry-api is updated from 1.45.1 to 1.45.2, which fixes a slow
+  (quadratic-time) parse of trace headers that could be used to tie up a program. Proofline
+  does not read trace headers from other programs, so this is an update for safety.
+
 ## 0.4.6 (2026-11-18)
 
 ### Added
