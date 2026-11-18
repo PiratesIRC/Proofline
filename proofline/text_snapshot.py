@@ -52,6 +52,7 @@ class FieldSnapshot:
     field_rect: ScreenRect
     caret_rect: ScreenRect | None
     caret_source: str
+    automation_id: str = ""  # UI Automation AutomationId; part of badge_placement.field_key
 
     def describe(self) -> str:
         return (

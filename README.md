@@ -165,6 +165,16 @@ minutes.
 | Red badge with a number | That many issues; it pulses briefly to get your attention |
 | Brown badge with **!** | The server couldn't be reached; hover for details |
 
+If the badge covers what you are typing, drag it somewhere else. Proofline remembers the spot
+for that text box and puts the badge there again next time, measured from the nearest corner of
+the box, so it stays in place when you resize the window or change the screen resolution or
+scaling. To put it back, open the issues popup and choose **More options › Reset badge
+position**, or reset every box at once in Settings › Appearance › **Badge positions**. Boxes
+that look the same to Windows share one spot: in a browser, boxes on the same page share it;
+every email body in Outlook and every document in Word share one; a chat app such as Teams or
+Slack has one spot for all its chats. A browser page whose title changes counts as a new box
+(unread counts such as "(3)" are ignored).
+
 Flagged words also get a wavy red line under them, in apps that tell other programs where
 each word is on screen (measured in Edge and Notepad). The lines move with the text when you
 scroll, disappear while you type, and come back after the next check. Turn them off in

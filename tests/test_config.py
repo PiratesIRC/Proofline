@@ -13,6 +13,7 @@ from proofline.config import (
     normalize_server_url,
     redact_url,
     save_config,
+    validate,
 )
 
 
@@ -457,3 +458,45 @@ def test_repr_shows_list_settings_as_counts_without_text_logging(text_logging):
 def test_repr_shows_list_settings_in_full_with_text_logging(text_logging):
     text_logging(True)
     assert "Zorblax" in repr(Config(personal_dictionary=("Zorblax",)))
+
+
+# ----- badge_positions (movable badge) ---------------------------------------
+
+def _spot_entry(key: str, dx: int = 0) -> str:
+    from proofline.badge_placement import SavedSpot, encode
+
+    return encode(key, SavedSpot("br", dx, 0))
+
+
+def test_badge_positions_default_empty():
+    assert Config().badge_positions == ()
+
+
+def test_badge_positions_round_trip(tmp_path):
+    path = tmp_path / "config.json"
+    entries = (_spot_entry("a" * 32, -5), _spot_entry("b" * 32, 7))
+    save_config(replace(Config(), badge_positions=entries), path)
+    assert load_config(path).badge_positions == entries
+
+
+def test_validate_drops_malformed_and_duplicate_badge_positions():
+    a1, b, a2 = _spot_entry("a" * 32, 1), _spot_entry("b" * 32), _spot_entry("a" * 32, 2)
+    assert validate(replace(Config(), badge_positions=(a1, "junk", b, a2))).badge_positions == (b, a2)
+
+
+def test_validate_keeps_newest_200_badge_positions():
+    entries = tuple(_spot_entry(f"{i:032x}") for i in range(250))
+    assert validate(replace(Config(), badge_positions=entries)).badge_positions == entries[-200:]
+
+
+def test_saved_config_holds_no_page_title(tmp_path):
+    from factories import snapshot
+
+    from proofline.badge_placement import SavedSpot, field_key, with_spot
+
+    key = field_key(snapshot(process_name="chrome.exe", window_title="Secret Plans - Google Chrome"), "k")
+    path = tmp_path / "config.json"
+    save_config(replace(Config(), badge_positions=with_spot((), key, SavedSpot("br", -5, -5))), path)
+    text = path.read_text(encoding="utf-8").casefold()
+    assert key in text  # the entry really was written
+    assert "secret" not in text

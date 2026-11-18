@@ -119,6 +119,7 @@ LIST_FIELDS = (
     "always_check_apps",
     "custom_fields",
     "ai_models",
+    "badge_positions",
 )
 FIELD_SIGNATURE_SEPARATOR = "|"
 FIELD_SIGNATURE_PARTS = 3
@@ -228,6 +229,7 @@ class Config:
     debug_mode: bool = False
     show_underlines: bool = True  # wavy lines under flagged words, where the app reports their position
     badge_always_visible: bool = True
+    badge_positions: tuple[str, ...] = ()  # badge_placement.encode() entries, newest last
     personal_dictionary: tuple[str, ...] = ()
     disabled_rules: tuple[str, ...] = ()
     disabled_categories: tuple[str, ...] = ()
@@ -384,11 +386,16 @@ def validate(config: Config) -> Config:
         raise ConfigError(f"Theme must be one of: {', '.join(THEMES)}.")
     if not isinstance(config.tray_color, str) or not HEX_COLOR.fullmatch(config.tray_color):
         raise ConfigError("Tray colour must look like #2e7d32.")
+    # Imported here: badge_placement imports this module.
+    from proofline.badge_placement import tidy
+
+    lists = {name: _string_tuple(getattr(config, name), name) for name in LIST_FIELDS}
+    lists["badge_positions"] = tidy(lists["badge_positions"])
     return replace(
         config,
         server_url=normalize_server_url(config.server_url),
         language=config.language.strip(),
-        **{name: _string_tuple(getattr(config, name), name) for name in LIST_FIELDS},
+        **lists,
         **{name: getattr(config, name).strip().lower() for name in HOTKEY_FIELDS},
         **_normalized_ai_addresses(config),
     )

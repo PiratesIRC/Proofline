@@ -391,3 +391,38 @@ def test_turning_off_a_window_does_not_log_its_title_without_text_logging(app, m
     caplog.set_level("INFO")
     app._disable_window("Quarterly Secret Plan - Word")
     assert "Quarterly Secret Plan" not in caplog.text
+
+
+def test_badge_drag_is_saved_to_disk_through_the_real_overlay(qapp, qtbot, tmp_path):
+    from drag_helpers import move, press, release
+    from PyQt6.QtCore import QPoint
+
+    from proofline.badge import BadgeWidget
+    from proofline.badge_placement import field_key, lookup
+    from proofline.overlay_controller import OverlayController
+    from proofline.screen_coords import ScreenInfo
+
+    screens = (ScreenInfo(QRect(0, 0, 1920, 1080), QRect(0, 0, 1920, 1040), 1.0),)
+    holder = {}
+    badge = BadgeWidget(primary_button_down=lambda: True)
+    qtbot.addWidget(badge)
+    overlay = OverlayController(lambda: holder["app"].config, badge, screens_provider=lambda: screens,
+                                position_secret=lambda: "s")
+    config_path = tmp_path / "config.json"
+    save_config(Config(server_url="https://lt.example/v2/check"), config_path)
+    holder["app"] = LanguageToolApp(
+        MagicMock(), config_path, monitor=MagicMock(), overlay=overlay, integration=MagicMock(),
+        health=MagicMock(), quick=MagicMock(), updates=MagicMock(current_info=MagicMock(return_value=None)),
+        usage=MagicMock(),
+    )
+    snap = snapshot()
+    overlay.on_field_changed(snap)
+    overlay.on_checked(snap, (issue_match("are", offset=5),))
+    start = badge.pos() + QPoint(10, 10)
+    press(badge, start)
+    move(badge, start + QPoint(-150, -80))
+    dropped = badge.pos()
+    release(badge, start + QPoint(-150, -80))
+    saved = load_config(config_path).badge_positions
+    assert lookup(saved, field_key(snap, "s")) is not None
+    assert badge.pos() == dropped  # the saved config came back through the app and kept the badge there

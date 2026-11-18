@@ -427,3 +427,20 @@ def test_expander_header_opens_from_the_keyboard(qtbot, key):
     assert card.is_expanded
     qtbot.keyClick(header, key)
     assert not card.is_expanded
+
+
+def test_reset_all_badge_positions_saves_empty(window, store):
+    entry = "a" * 32 + "=br:-5:-5"
+    window.appearance.load(replace(store.config, badge_positions=(entry,)))
+    window.appearance._reset_badges.click()
+    assert store.saves[-1].badge_positions == ()
+
+
+def test_reset_all_badge_positions_disabled_when_none_saved(window, store):
+    seen = []
+    window.appearance.changed.connect(seen.append)
+    window.appearance.load(replace(store.config, badge_positions=()))
+    assert not window.appearance._reset_badges.isEnabled()
+    window.appearance.load(replace(store.config, badge_positions=("a" * 32 + "=br:-5:-5",)))
+    assert window.appearance._reset_badges.isEnabled()
+    assert seen == []  # loading saves nothing

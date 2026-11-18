@@ -118,6 +118,7 @@ class LanguageToolApp(QObject):
         self._overlay.add_word_requested.connect(self._add_word)
         self._overlay.disable_rule_requested.connect(self._disable_rule)
         self._overlay.undo_requested.connect(self._undo)
+        self._overlay.badge_positions_changed.connect(self._on_badge_positions)
         self._overlay.underline_target_changed.connect(self._monitor.set_underline_target)
         self._monitor.underlines_changed.connect(self._overlay.on_underlines)
 
@@ -294,6 +295,10 @@ class LanguageToolApp(QObject):
             log.exception("Could not save settings")
             self._set_config(config)
             self._notify(f"Could not save settings: {exc}")
+
+    def _on_badge_positions(self, positions: tuple[str, ...]) -> None:
+        """The badge was dragged or reset in a field: save where it goes from now on."""
+        self._save_quietly(replace(self._config, badge_positions=positions))
 
     def _apply_rephrase(self, request: ReplaceRequest) -> None:
         """A chosen AI rewording: the same checked replace path, counted as an AI rephrase."""

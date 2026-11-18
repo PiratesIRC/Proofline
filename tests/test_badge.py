@@ -1,7 +1,11 @@
+import ctypes
 import math
 
 import pytest
+from drag_helpers import LEFT, RIGHT, drag, move, press, release
+from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter
+from PyQt6.QtWidgets import QApplication
 
 from proofline.badge import (
     ATTENTION_PULSES,
@@ -134,3 +138,117 @@ def test_badge_has_an_accessible_name_that_follows_its_state(qtbot):
     assert badge.accessibleName() == "Proofline: 3 issues. Click to see them."
     badge.set_state(BadgeState.CLEAN)
     assert badge.accessibleName() == "Proofline: no issues found"
+
+
+# ----- dragging ----------------------------------------------------------------
+
+
+def _record(badge):
+    seen = {"clicked": 0, "drag_started": 0, "moved": []}
+    badge.clicked.connect(lambda: seen.__setitem__("clicked", seen["clicked"] + 1))
+    badge.drag_started.connect(lambda: seen.__setitem__("drag_started", seen["drag_started"] + 1))
+    badge.moved.connect(lambda point: seen["moved"].append((point, badge.is_dragging)))
+    return seen
+
+
+def _placed(make_badge):
+    badge, _clock = make_badge()
+    badge.move(QPoint(300, 300))
+    return badge, _record(badge)
+
+
+def test_press_does_not_emit_clicked(make_badge):
+    badge, seen = _placed(make_badge)
+    press(badge, QPoint(310, 310))
+    assert seen["clicked"] == 0
+
+
+def test_press_and_release_emits_clicked(make_badge):
+    badge, seen = _placed(make_badge)
+    press(badge, QPoint(310, 310))
+    release(badge, QPoint(310, 310))
+    assert seen == {"clicked": 1, "drag_started": 0, "moved": []}
+
+
+def test_small_movement_is_a_click(make_badge):
+    badge, seen = _placed(make_badge)
+    d = QApplication.startDragDistance()
+    drag(badge, QPoint(310, 310), QPoint(310 + d - 1, 310))
+    assert seen == {"clicked": 1, "drag_started": 0, "moved": []}
+    assert badge.pos() == QPoint(300, 300)
+
+
+def test_drag_moves_window_and_emits_moved(make_badge):
+    badge, seen = _placed(make_badge)
+    press(badge, QPoint(310, 310))
+    move(badge, QPoint(370, 340))
+    assert badge.is_dragging
+    release(badge, QPoint(370, 340))
+    assert seen["drag_started"] == 1
+    assert badge.pos() == QPoint(360, 330)
+    assert seen["moved"] == [(QPoint(360, 330), False)]  # is_dragging already cleared in the slot
+
+
+def test_drag_does_not_emit_clicked(make_badge):
+    badge, seen = _placed(make_badge)
+    drag(badge, QPoint(310, 310), QPoint(370, 340))
+    assert seen["clicked"] == 0
+
+
+def test_right_button_does_nothing(make_badge):
+    badge, seen = _placed(make_badge)
+    d = QApplication.startDragDistance()
+    drag(badge, QPoint(310, 310), QPoint(320 + d, 310), button=RIGHT)
+    assert seen == {"clicked": 0, "drag_started": 0, "moved": []}
+    assert badge.pos() == QPoint(300, 300)
+
+
+def test_drag_keeps_badge_non_activating(make_badge):
+    from proofline.non_activating import WS_EX_NOACTIVATE
+
+    badge, _seen = _placed(make_badge)
+    drag(badge, QPoint(310, 310), QPoint(370, 340), button=LEFT)
+    assert badge.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+    assert badge.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus
+    style = ctypes.windll.user32.GetWindowLongW(int(badge.winId()), -20)  # GWL_EXSTYLE
+    assert style & WS_EX_NOACTIVATE
+
+
+def _held_badge(qtbot):
+    held = {"down": True}
+    badge = BadgeWidget(primary_button_down=lambda: held["down"])
+    qtbot.addWidget(badge)
+    badge.show()
+    badge.move(QPoint(300, 300))
+    return badge, held, _record(badge)
+
+
+def test_lost_release_ends_drag_when_button_is_up(qtbot):
+    badge, held, seen = _held_badge(qtbot)
+    press(badge, QPoint(310, 310))
+    move(badge, QPoint(370, 340))
+    assert badge.is_dragging
+    held["down"] = False  # e.g. Alt+Tab took the mouse away; no release event will come
+    badge._watch_drag()
+    assert not badge.is_dragging
+    assert seen["moved"] == [(QPoint(360, 330), False)]
+    assert seen["clicked"] == 0
+
+
+def test_watch_keeps_drag_while_button_held(qtbot):
+    badge, _held, seen = _held_badge(qtbot)
+    press(badge, QPoint(310, 310))
+    move(badge, QPoint(370, 340))
+    badge._watch_drag()
+    assert badge.is_dragging
+    assert seen["moved"] == []
+
+
+def test_new_press_clears_a_stuck_drag(qtbot):
+    badge, _held, seen = _held_badge(qtbot)
+    press(badge, QPoint(310, 310))
+    move(badge, QPoint(370, 340))
+    press(badge, QPoint(370, 340))  # the release of the first drag never arrived
+    assert not badge.is_dragging
+    release(badge, QPoint(370, 340))
+    assert seen["clicked"] == 1

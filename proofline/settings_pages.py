@@ -405,11 +405,15 @@ class AppearancePage(Page):
         self._tray_color.currentIndexChanged.connect(lambda: self._emit(tray_color=self._tray_color.currentData()))
         self._badge = _switch("Show the badge in every text field", lambda on: self._emit(badge_always_visible=on))
         self._underlines = _switch("Underline issues in the text", lambda on: self._emit(show_underlines=on))
+        self._reset_badges = QPushButton("Reset all")
+        self._reset_badges.clicked.connect(lambda: self._emit(badge_positions=()))
 
         self._card(SettingCard("Theme", "Light, dark, or the same as Windows", self._theme, keywords="dark light mode"))
         self._card(SettingCard("Accent and tray icon colour", "", self._tray_color, keywords="color colour tray"))
         self._card(SettingCard("Show the badge in every text field", "When off, it appears only when there are issues",
                                self._badge, keywords="badge icon"))
+        self._card(SettingCard("Badge positions", "Drag the badge to move it in a text field; it returns there next time",
+                               self._reset_badges, keywords="badge move drag position reset"))
         self._card(SettingCard("Underline issues in the text", UNDERLINE_DESCRIPTION, self._underlines,
                                keywords="underline squiggle wavy line red"))
         self._finish()
@@ -419,6 +423,7 @@ class AppearancePage(Page):
         _set_combo_data(self._tray_color, config.tray_color, f"Custom ({config.tray_color})")
         self._badge.setChecked(config.badge_always_visible)
         self._underlines.setChecked(config.show_underlines)
+        self._reset_badges.setEnabled(bool(config.badge_positions))
 
 
 class ShortcutsPage(Page):

@@ -77,3 +77,9 @@ def pytest_runtest_call(item):
         return (yield)
     finally:
         gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def no_real_badge_secret(monkeypatch):
+    """Controllers built without position_secret would create the real Credential Manager entry."""
+    monkeypatch.setattr("proofline.overlay_controller.load_secret", lambda: "test-secret")

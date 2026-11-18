@@ -53,6 +53,7 @@ NOTICE_ONLY_MS = 10_000
 ELLIPSIS = "…"
 MORE_CLOSED = "More options ▾"
 MORE_OPEN = "More options ▴"
+RESET_POSITION_TEXT = "Reset badge position"
 CLOSE_GLYPH = "✕"
 IGNORE_TEXT = "Ignore for now"
 ADD_WORD_TEXT = "Add to dictionary"
@@ -153,6 +154,7 @@ class IssuesPopup(QWidget):
     ai_cancel_requested = pyqtSignal()
     ai_retry_requested = pyqtSignal()
     shown = pyqtSignal()  # the popup became visible (AI status is shown again then)
+    reset_position_requested = pyqtSignal()  # put this field's badge back to its automatic spot
 
     def __init__(self) -> None:
         super().__init__()
@@ -316,14 +318,18 @@ class IssuesPopup(QWidget):
         self._disable_app_button.clicked.connect(self.disable_app_requested.emit)
         self._disable_window_button = link_button("Turn off in this window")
         self._disable_window_button.clicked.connect(self.disable_window_requested.emit)
+        self._reset_position_button = link_button(RESET_POSITION_TEXT)
+        self._reset_position_button.clicked.connect(self.reset_position_requested.emit)
         settings_button = link_button("Settings…")
         settings_button.clicked.connect(self.settings_requested.emit)
         self._more = QWidget()
         more_layout = QVBoxLayout(self._more)
         more_layout.setContentsMargins(12, 0, 0, 0)
         more_layout.setSpacing(2)
-        for button in (self._disable_app_button, self._disable_window_button, settings_button):
+        for button in (self._disable_app_button, self._disable_window_button, self._reset_position_button,
+                       settings_button):
             more_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignLeft)
+        self._reset_position_button.hide()  # shown by show_issues when the field has a saved spot
         self._more.hide()
         layout = QVBoxLayout(self._footer)
         layout.setContentsMargins(0, 4, 0, 0)
@@ -336,11 +342,14 @@ class IssuesPopup(QWidget):
     def show_issues(
         self, matches: tuple[Match, ...], app_name: str, anchor: QRect, bounds: QRect,
         text: str = "", accent: str = DEFAULT_TRAY_COLOR, ai_available: bool = False,
+        has_saved_position: bool = False,
     ) -> None:
         """Show matches beside the badge at anchor. text is the checked field text, for excerpts.
 
+        has_saved_position: the badge was dragged in this field, so offer to reset it.
         The AI row and status line are left as they are: a recheck re-shows the popup mid-request.
         """
+        self._reset_position_button.setVisible(has_saved_position)
         self._accent, self._text, self._anchor, self._bounds = accent, text, anchor, bounds
         self._ai_available = ai_available
         self._ai_button.setVisible(ai_available)

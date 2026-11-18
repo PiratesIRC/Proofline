@@ -212,6 +212,7 @@ def _snapshot(
         field_rect=ScreenRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
         caret_rect=caret_rect,
         caret_source=caret_source,
+        automation_id=control.AutomationId or "",
     )
     pattern_names = "+".join(
         name for name, p in (("Text", text_pattern), ("Value", value_pattern)) if p is not None

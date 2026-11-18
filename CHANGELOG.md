@@ -2,6 +2,21 @@
 
 All notable changes to this project.
 
+## 0.4.6 (2026-11-18)
+
+### Added
+- Drag the badge to move it, for example when it covers the text you are typing. Proofline
+  remembers the spot for that text box and uses it again whenever the box has focus, measured
+  from the nearest corner of the box so it holds when the window is resized or the resolution or
+  scaling changes. Reset one box from the issues popup (**More options › Reset badge
+  position**) or all of them in Settings › Appearance › **Badge positions**. Boxes are told
+  apart by program, control type, class and AutomationId, plus the page title in browsers; the
+  config file stores only a keyed hash of these, never the title; the key is a random secret
+  kept in Windows Credential Manager (`Proofline/badge-position-key`), so a shared config file or
+  diagnostics report cannot be used to confirm a guessed page title. The badge can be left on
+  another monitor than its text box, and tiny boxes keep a dragged spot too. A click on the badge now counts when
+  the mouse button is released, so a press that turns into a drag does not open the popup.
+
 ## 0.4.5 (2026-11-13)
 
 ### Changed

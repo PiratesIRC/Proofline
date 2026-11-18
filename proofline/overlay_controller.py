@@ -11,6 +11,17 @@ from proofline.ai_jobs import AI_CATEGORY, AI_RULE_ID, is_ai_match
 from proofline.ai_merge import PendingEdit, merge_with_ai, moved_matches
 from proofline.app_names import display_name
 from proofline.badge import BADGE_SIZE, BadgeState, BadgeWidget
+from proofline.badge_placement import (
+    area_for,
+    clamp,
+    field_key,
+    lookup,
+    place,
+    spot_for,
+    with_spot,
+    without_spot,
+)
+from proofline.badge_secret import load_secret
 from proofline.combined_fix import (
     FIX_ALL_CATEGORY,
     FIX_ALL_RULE_ID,
@@ -72,6 +83,7 @@ class OverlayController(QObject):
     rephrase_requested = pyqtSignal(object)  # RephraseTarget, from the card's Rephrase link
     find_more_requested = pyqtSignal(object)  # FieldSnapshot, from the popup's Find more issues
     rewrite_requested = pyqtSignal(object, str)  # FieldSnapshot, ai_rewrite style id
+    badge_positions_changed = pyqtSignal(tuple)  # the whole new Config.badge_positions, to save
 
     def __init__(
         self,
@@ -83,6 +95,7 @@ class OverlayController(QObject):
         underlines: UnderlineOverlay | None = None,
         card: IssueCard | None = None,
         ai_available: Callable[[], bool] = lambda: False,
+        position_secret: Callable[[], str] | None = None,  # None: badge_secret.load_secret
     ) -> None:
         super().__init__()
         self._config_provider = config_provider
@@ -96,6 +109,8 @@ class OverlayController(QObject):
         self._card_held = False  # a rephrase owns the card
         self._card_word: tuple[QRect, QRect] | None = None  # logical word rect and bounds of the card
         self._ai_available = ai_available
+        self._position_secret = position_secret
+        self._secret: str | None = None  # read from Credential Manager on first use
         self._screens_provider = screens_provider
         self._snapshot: FieldSnapshot | None = None
         self._server_matches: tuple[Match, ...] = ()  # as returned by the server
@@ -107,8 +122,12 @@ class OverlayController(QObject):
         self._state = BadgeState.CHECKING
         self._message = ""
         self._typed = False  # the text changed while this field had focus; until then no gray badge
+        self._drag_field: tuple[int, ...] | None = None  # field_id the badge drag started on
 
         self._badge.clicked.connect(self._toggle_popup)
+        self._badge.drag_started.connect(self._on_drag_started)
+        self._badge.moved.connect(self._on_badge_moved)
+        self._popup.reset_position_requested.connect(self._on_reset_position)
         self._popup.replacement_chosen.connect(self._on_replacement_chosen)
         self._popup.disable_app_requested.connect(self._on_disable_app)
         self._popup.disable_window_requested.connect(self._on_disable_window)
@@ -215,7 +234,7 @@ class OverlayController(QObject):
             self._server_matches = ()
             self._matches = ()
             self._sync_underlines()
-            self._badge.hide()
+            self._hide_badge()
             self._release_popup(NO_FIELD_STATUS)
             return
         if previous is None or previous.field_id != snapshot.field_id:
@@ -285,6 +304,9 @@ class OverlayController(QObject):
         self._sync_underlines()
         self._update_card()
         snapshot = self._snapshot
+        if self._badge.is_dragging:  # placed and shown or hidden again when the drag ends
+            self._badge.set_state(self._state, len(self._matches), self._message)
+            return
         show_silent = self._config_provider().badge_always_visible
         if snapshot is None or (self._state in SILENT_STATES and not show_silent):
             self._badge.hide()
@@ -295,9 +317,59 @@ class OverlayController(QObject):
             self._badge.hide()
             return
         self._badge.set_state(self._state, len(self._matches), self._message)
-        self._badge.move(badge_position(snapshot, self._screens_provider()))
+        if not self._badge.is_held:  # a pressed badge stays under the mouse until it is released
+            self._badge.move(self._badge_target(snapshot, self._screens_provider()))
         self._badge.show()
         self._badge.raise_()
+
+    def _hide_badge(self) -> None:
+        if not self._badge.is_dragging:
+            self._badge.hide()
+
+    def _saved_spot(self, snapshot: FieldSnapshot):
+        return lookup(self._config_provider().badge_positions, self._key(snapshot))
+
+    def _key(self, snapshot: FieldSnapshot) -> str:
+        if self._secret is None:
+            # Looked up here, not bound as a default, so tests can replace it module-wide.
+            self._secret = (self._position_secret or load_secret)()
+        return field_key(snapshot, self._secret)
+
+    def _badge_target(self, snapshot: FieldSnapshot, screens: Sequence[ScreenInfo]) -> QPoint:
+        """Where the user dragged the badge for this box, else the automatic position."""
+        spot = self._saved_spot(snapshot)
+        if spot is not None:
+            visible, screen = visible_field(snapshot, screens)
+            if screen is not None and not visible.isEmpty():  # any visible part, even a tiny field
+                return place(spot, visible, [s.available for s in screens], screen.available)
+        return badge_position(snapshot, screens)
+
+    def _on_drag_started(self) -> None:
+        self._drag_field = self._snapshot.field_id if self._snapshot is not None else None
+        if not self._popup.is_pinned:
+            self._popup.hide()
+
+    def _on_badge_moved(self, point: QPoint) -> None:
+        """Save the drop for the box the drag started on; drop it if focus moved meanwhile."""
+        started_on, self._drag_field = self._drag_field, None
+        snapshot = self._snapshot
+        if snapshot is not None and started_on == snapshot.field_id:
+            screens = self._screens_provider()
+            visible, screen = visible_field(snapshot, screens)
+            if screen is not None and not visible.isEmpty():
+                area = area_for(point, [s.available for s in screens], screen.available)  # may be another monitor
+                spot = spot_for(clamp(point, area), visible)
+                self.badge_positions_changed.emit(
+                    with_spot(self._config_provider().badge_positions, self._key(snapshot), spot))
+        self.refresh()
+
+    def _on_reset_position(self) -> None:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return
+        self._popup.hide()
+        self.badge_positions_changed.emit(without_spot(self._config_provider().badge_positions, self._key(snapshot)))
+        self.refresh()
 
     def _sync_underlines(self) -> None:
         """Tell the monitor which spans to measure; hide the lines when there are none."""
@@ -425,6 +497,7 @@ class OverlayController(QObject):
             text=snapshot.text, accent=self._config_provider().tray_color,
             # No AI while the server is unreachable: findings would wait for a recheck that never comes.
             ai_available=self._ai_available() and self._state is not BadgeState.ERROR,
+            has_saved_position=self._saved_spot(snapshot) is not None,
         )
         if self._state is BadgeState.CHECKING:  # no result yet: the list would say "No issues found."
             self._popup.show_status(CHECKING_STATUS if self._will_check(snapshot) else TOO_SHORT_STATUS)
@@ -488,13 +561,20 @@ class OverlayController(QObject):
         self._ai_key, self._ai_matches = None, ()
         self._set_state(BadgeState.CHECKING)
         self._sync_underlines()
-        self._badge.hide()
+        self._hide_badge()
         self._popup.show_notice_only(message, field, value)
 
     def _on_settings(self) -> None:
         if not self._popup.is_pinned:
             self._popup.hide()
         self.settings_requested.emit()
+
+
+def visible_field(snapshot: FieldSnapshot, screens: Sequence[ScreenInfo]) -> tuple[QRect, ScreenInfo | None]:
+    """The field in logical coordinates, cut to its screen's available area, and that screen."""
+    field = to_logical_rect(snapshot.field_rect, screens)
+    screen = screen_for(snapshot.field_rect.left, snapshot.field_rect.top, screens)
+    return (field.intersected(screen.available) if screen else field), screen
 
 
 def badge_position(snapshot: FieldSnapshot, screens: Sequence[ScreenInfo]) -> QPoint:
