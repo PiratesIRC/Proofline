@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 REQUEST_TIMEOUT_S = 10
 MAX_REPLACEMENTS = 5
 MAX_ERROR_BODY_CHARS = 200
+HTTP_REDIRECT_RANGE = range(300, 400)  # never followed: a redirect could send the typed text elsewhere
 BMP_MAX_CODEPOINT = 0xFFFF
 PICKY_LEVEL = "picky"
 MIN_HIDDEN_USER_CHARS = 3  # shorter user names are left in error text; replacing "a" would garble it
@@ -99,6 +100,19 @@ class LanguageToolClient:
             data["level"] = PICKY_LEVEL
         return data
 
+    def _raise_for_status(self, response: requests.Response, safe_url: str) -> None:
+        """Raise unless the server answered 200. A redirect gets its own message with no Location or body."""
+        code = response.status_code
+        if code in HTTP_REDIRECT_RANGE:
+            log.warning("%s answered with a redirect (HTTP %d); not following it", safe_url, code)
+            raise LanguageToolError(
+                f"The server sent a redirect (HTTP {code}). Check the address in Settings.", ERROR_HTTP, code
+            )
+        if code != 200:
+            body = response.text[:MAX_ERROR_BODY_CHARS]
+            log.warning("%s returned HTTP %d: %s", safe_url, code, body)
+            raise LanguageToolError(f"Server returned HTTP {code}: {body}", ERROR_HTTP, code, body)
+
     def check(self, text: str) -> tuple[Match, ...]:
         """Check text and return the matches LanguageTool reports."""
         if not text.strip():
@@ -110,6 +124,7 @@ class LanguageToolClient:
                 self._server_url,
                 data=self._form_data(text),
                 timeout=self._timeout,
+                allow_redirects=False,
             )
         except requests.Timeout as exc:
             log.warning("Request to %s timed out: %s", safe_url, self._clean(exc))
@@ -131,12 +146,7 @@ class LanguageToolClient:
             log.warning("Request to %s failed: %s", safe_url, detail)
             raise LanguageToolError(f"Could not reach LanguageTool server: {detail}") from exc
 
-        if response.status_code != 200:
-            body = response.text[:MAX_ERROR_BODY_CHARS]
-            log.warning("%s returned HTTP %d: %s", safe_url, response.status_code, body)
-            raise LanguageToolError(
-                f"Server returned HTTP {response.status_code}: {body}", ERROR_HTTP, response.status_code, body
-            )
+        self._raise_for_status(response, safe_url)
         try:
             payload = response.json()
         except ValueError as exc:

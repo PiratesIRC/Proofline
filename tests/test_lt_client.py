@@ -113,6 +113,28 @@ def test_http_error_carries_status_and_body():
     assert (info.value.kind, info.value.status, info.value.body) == (ERROR_HTTP, 400, "error body")
 
 
+def test_check_never_follows_redirects():
+    client, session = make_client(make_response())
+    client.check(TEXT)
+    _, kwargs = session.post.call_args
+    assert kwargs["allow_redirects"] is False
+
+
+@pytest.mark.parametrize("status", [301, 302, 307, 308])
+def test_redirect_raises_without_leaking_location_or_body(status):
+    response = make_response(status=status)
+    response.headers = {"Location": "http://evil.example/steal"}
+    response.text = "private body"
+    client, _ = make_client(response)
+    with pytest.raises(LanguageToolError) as info:
+        client.check(TEXT)
+    message = str(info.value)
+    assert f"HTTP {status}" in message
+    assert "evil.example" not in message
+    assert "private body" not in message
+    assert (info.value.kind, info.value.status, info.value.body) == (ERROR_HTTP, status, "")
+
+
 def test_invalid_json_raises():
     response = make_response()
     response.json.side_effect = ValueError("bad json")

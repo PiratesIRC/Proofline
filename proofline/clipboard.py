@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import struct
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -26,6 +27,9 @@ OPEN_RETRY_DELAY_S = 0.02
 PASTE_SETTLE_S = 0.3  # time the target app needs to read the clipboard after Ctrl+V
 RESTORE_ATTEMPTS = 3  # each attempt already retries the open OPEN_RETRIES times
 RESTORE_RETRY_S = 0.2
+# When the field never showed the correction, the user's clipboard goes back only after this
+# long: a paste the program is still holding back must not find the user's own clipboard.
+UNCONFIRMED_RESTORE_S = 30.0
 VK_CONTROL = 0x11
 VK_V = 0x56
 VK_DELETE = 0x2E
@@ -155,24 +159,53 @@ def _put_text(text: str) -> None:
 def paste_text(
     text: str,
     send_keys: Callable[[], None] = send_ctrl_v,
-    wait_until_pasted: Callable[[], None] | None = None,
+    wait_until_pasted: Callable[[], bool | None] | None = None,
+    restore_later: Callable[[ClipboardBackup, int], None] | None = None,
 ) -> None:
     """Replace the target app's selection with `text`, leaving the clipboard as it was.
 
-    wait_until_pasted returns once the target shows the paste (or gives up); without it a fixed
-    PASTE_SETTLE_S is waited. A program busy for longer than that pastes the restored clipboard
-    instead of the correction (measured 2026-11-13 with a 0.7 s busy period).
+    wait_until_pasted returns True once the target shows the paste, or False when it gave up;
+    without it a fixed PASTE_SETTLE_S is waited. After False the Ctrl+V may still be waiting in
+    the target program (a busy program, or a web page holding it back on purpose), and a paste
+    that runs after the restore delivers the user's own clipboard to that program. So the
+    correction stays on the clipboard for UNCONFIRMED_RESTORE_S more, and the user's clipboard
+    goes back then, unless something else was copied meanwhile.
     """
     backup = backup_clipboard()
+    confirmed: bool | None = True
     try:
         _put_text(text)  # empties the clipboard first, so a failure here must still restore it
+        sequence = win32clipboard.GetClipboardSequenceNumber()
         send_keys()
         if wait_until_pasted is None:
             time.sleep(PASTE_SETTLE_S)
         else:
-            wait_until_pasted()
-    finally:
+            confirmed = wait_until_pasted()
+    except BaseException:
+        _restore_with_retries(backup)  # nothing was pasted on our account: put it back now
+        raise
+    if confirmed is False:
+        log.warning("Paste not confirmed; the clipboard is restored in %.0f s", UNCONFIRMED_RESTORE_S)
+        (restore_later or _restore_later)(backup, sequence)
+    else:
         _restore_with_retries(backup)
+
+
+def _restore_later(backup: ClipboardBackup, sequence: int, delay: float = UNCONFIRMED_RESTORE_S) -> None:
+    """Restore after delay, on a timer thread, if the clipboard still holds what we put there."""
+    timer = threading.Timer(delay, restore_if_unchanged, (backup, sequence))
+    timer.daemon = True  # quitting meanwhile leaves the correction on the clipboard
+    timer.start()
+
+
+def restore_if_unchanged(backup: ClipboardBackup, sequence: int) -> bool:
+    """Put the user's clipboard back unless it changed since `sequence` (the user copied
+    something else, which must not be overwritten). True when it was restored."""
+    if win32clipboard.GetClipboardSequenceNumber() != sequence:
+        log.info("The clipboard changed meanwhile; the earlier contents are not put back")
+        return False
+    _restore_with_retries(backup)
+    return True
 
 
 def _restore_with_retries(backup: ClipboardBackup) -> None:

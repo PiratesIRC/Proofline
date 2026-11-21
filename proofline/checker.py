@@ -13,6 +13,7 @@ from proofline.config import Config
 from proofline.hidden_chars import hidden_matches, merge_matches
 from proofline.logging_setup import text_logging_enabled
 from proofline.lt_client import ERROR_TIMEOUT, LanguageToolClient, Match
+from proofline.quoted_text import checked_part, in_ranges, quoted_ranges
 from proofline.text_snapshot import FieldSnapshot
 from proofline.workers import run_in_background
 
@@ -36,6 +37,7 @@ def cache_key(config: Config, text: str) -> CacheKey:
         tuple(config.disabled_categories),
         config.picky,
         config.flag_hidden_characters,
+        config.skip_quoted_replies,
         text,
     )
 
@@ -96,9 +98,17 @@ class GrammarChecker(QObject):
         flag_hidden = config.flag_hidden_characters
         key = cache_key(config, snapshot.text)
 
+        quoted = quoted_ranges(snapshot.text) if config.skip_quoted_replies else ()
+        text = checked_part(snapshot.text, quoted)  # earlier messages at the end are not sent at all
+        if quoted:
+            log.info("Skipping %d of %d characters as quoted earlier messages",
+                     sum(end - start for start, end in quoted), len(snapshot.text))
+
         def run() -> tuple[Match, ...]:
-            matches = client.check(snapshot.text)
-            return merge_matches(matches, hidden_matches(snapshot.text)) if flag_hidden else matches
+            matches = client.check(text) if text.strip() else ()
+            if flag_hidden:
+                matches = merge_matches(matches, hidden_matches(text))
+            return tuple(match for match in matches if not in_ranges(match.offset, quoted))
 
         run_in_background(
             run,

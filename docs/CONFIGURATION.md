@@ -33,7 +33,7 @@ absent take their defaults, so a file containing only `server_url` is valid.
 
 | Key | Type | Default | Settings location | Notes |
 |---|---|---|---|---|
-| `server_url` | string | `http://127.0.0.1:8010/v2/check` | General › LanguageTool server | `http://` or `https://`; a bare host or `/v2` gets `/v2/check` appended. Credentials (`user:pass@`) are redacted in logs. |
+| `server_url` | string | `http://127.0.0.1:8010/v2/check` | General › LanguageTool server | `http://` or `https://`; a bare host or `/v2` gets `/v2/check` appended. Credentials (`user:pass@`) are redacted in logs and are not written to this file: they are kept in Windows Credential Manager under `Proofline/server-login/<host>` and put back for that host at start (the file keeps them only if Credential Manager cannot be written). A `/`, `?` or `#` in the user name or password must be written as `%2F`, `%3F` or `%23`; an address with one unencoded is refused. A server that answers with a redirect is reported as an error. |
 | `language` | string | `auto` | General › Language; quick settings | A LanguageTool code such as `en-US`, `en-GB`, `es`, `de-DE`. |
 | `enabled` | bool | `true` | Tray › Checking enabled; quick settings | Pausing for 1 hour sets this to `false` and back. |
 | `start_with_windows` | bool | `false` | General | Kept in sync with the Run registry value. |
@@ -41,6 +41,7 @@ absent take their defaults, so a file containing only `server_url` is valid.
 | `min_words` | int | `2` | Checking › Only check text with at least | 1 to 10. `Ctrl+Alt+L` ignores it. |
 | `picky` | bool | `false` | Checking › Picky mode | Sends `level=picky`. |
 | `flag_hidden_characters` | bool | `true` | Checking › Flag hidden characters | Flags a zero-width space, soft hyphen, direction mark, Mongolian vowel separator (U+180E) or invisible math operator (U+2061 to U+2064) inside a word, text-direction controls (U+202A to U+202E, U+2066 to U+2069) anywhere, and unusual spaces (thin, em, narrow no-break, ideographic and similar). Checked by Proofline itself, not the server. Never flagged, because web editors insert them as placeholders or browsers add them: U+FEFF, U+2060, U+00A0, U+200C, U+200D. |
+| `skip_quoted_replies` | bool | `true` | Checking › Skip quoted email text | In a reply or forward, the earlier messages are not checked and, when they run to the end of the text, not sent to the server. They start at a `From:` line followed within four non-empty lines by `Sent:` or `Date:` (also the German, French, Spanish, Dutch, Italian and Portuguese words), at a line such as `-----Original Message-----` or `---------- Forwarded message ---------`, or at an `On ... wrote:` line with text typed above it. With nothing typed above an `On ... wrote:` line, only that line and the lines starting with `>` are left out. Find more issues, Rewrite for clarity and Change tone likewise send the AI provider only the text before earlier messages that run to the end. |
 | `personal_dictionary` | list of strings | `[]` | Checking › Personal dictionary; popup › Add to dictionary | Spelling matches only; case-insensitive. |
 | `disabled_rules` | list of strings | `[]` | Checking › Turned-off rules; popup › Turn off this rule | LanguageTool rule IDs, sent as `disabledRules`. |
 | `disabled_categories` | list of strings | `[]` | Checking › Turned-off categories | Category IDs (upper-cased), sent as `disabledCategories`. |
@@ -96,7 +97,9 @@ Independently of the lists above, the app never checks password fields, read-onl
 dropdowns (combo boxes, including ones you can type into, such as the Outlook reminder snooze
 box), browser address bars, search boxes (the word *search* in the field's label, help text or
 type, or a *Search* part in its automation ID or class), numeric/spinner fields, fields whose text
-has digits and no letters (IP addresses, amounts, dates, phone numbers), user name and email
+has digits and no letters (IP addresses, amounts, dates, phone numbers), fields whose text is only
+a date, a time or both, at most 40 characters, where every word is an English day or month name,
+AM or PM, or one of *at*, *to*, *UTC*, *GMT* (`Mon 11/23/2026`, `8:00 AM`), user name and email
 fields (*user name*, *user ID*, *login ID* or *email* in the label, help text, automation ID or
 class; *email body*, *email message* and similar are still checked), or fields whose label,
 placeholder or automation ID mentions one-time, verification or entry codes (*Enter code*,

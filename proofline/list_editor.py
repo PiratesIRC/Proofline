@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from proofline.ui_kit import plain_tooltip
+
 LIST_MIN_HEIGHT = 60
 LIST_PREFERRED_HEIGHT = 100  # about five rows; the list still grows with the window
 
@@ -83,7 +85,7 @@ class StringListEditor(QWidget):
     def _append(self, value: str) -> None:
         item = QListWidgetItem(self._label(value))
         item.setData(Qt.ItemDataRole.UserRole, value)
-        item.setToolTip(value)
+        item.setToolTip(plain_tooltip(value))
         self._list.addItem(item)
 
     def add_item(self, text: str) -> bool:

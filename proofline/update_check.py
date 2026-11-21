@@ -6,6 +6,11 @@ result is cached in a JSON file and re-checked when the installed version change
 cache (cached_info); UpdateChecker refreshes it on a worker thread, so opening
 Settings never waits on the network. Nothing here raises: every failure becomes the
 "Version check unavailable" status. Sends no typed text, only an anonymous request.
+
+The release's notes (its description on GitHub) and page address are cached with the
+result, so Settings can show what changed before the download link. The notes are text
+from the network: they are shortened, stripped of control characters and only ever
+shown as plain text.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ import re
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +44,10 @@ FAILURE_TTL_S = 2 * 60 * 60
 TICK_MS = 60 * 60 * 1000  # how often the app asks whether the cache has gone stale
 CACHE_PATH = APP_DATA_DIR / "version_check.json"
 NON_DIGITS = re.compile(r"\D")
+NOTES_MAX_CHARS = 4000
+NOTES_CUT_MARK = "\n[...]"
+RELEASE_URL_PREFIX = "https://github.com/PiratesIRC/Proofline/releases/"
+CONTROL_CHARS = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
 
 CURRENT, OUTDATED, UNKNOWN = "current", "outdated", "unknown"
 
@@ -50,24 +59,59 @@ class VersionInfo:
     status: str  # CURRENT, OUTDATED or UNKNOWN
     message: str  # one line for the UI
     latest: str = ""
+    notes: str = ""  # the latest release's description, cleaned; "" when none came
+    url: str = ""  # that release's page; "" means the general releases page
+
+
+@dataclass(frozen=True)
+class Release:
+    """The latest release as GitHub describes it."""
+
+    tag: str
+    notes: str = ""
+    url: str = ""
 
 
 def unavailable(current: str) -> VersionInfo:
     return VersionInfo(UNKNOWN, f"Version check unavailable (v{_bare(current)})")
 
 
-def fetch_latest_version(get: Getter = requests.get) -> str | None:
-    """The latest release's tag, or None on any HTTP, network or format problem."""
+def fetch_latest_release(get: Getter = requests.get) -> Release | None:
+    """The latest release's tag, notes and page, or None on any HTTP, network or format problem."""
     try:
         response = get(LATEST_RELEASE_URL, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT_S)
         if response.status_code != 200:
             log.info("Update check: GitHub answered HTTP %d", response.status_code)
             return None
-        tag = response.json().get("tag_name")
+        payload = response.json()
+        tag = payload.get("tag_name")
     except (requests.RequestException, ValueError, AttributeError) as exc:
         log.info("Update check failed: %s", exc)
         return None
-    return tag if isinstance(tag, str) and tag.strip() else None
+    if not isinstance(tag, str) or not tag.strip():
+        return None
+    return Release(tag, clean_notes(payload.get("body")), _release_url(payload.get("html_url")))
+
+
+def fetch_latest_version(get: Getter = requests.get) -> str | None:
+    """The latest release's tag, or None on any HTTP, network or format problem."""
+    release = fetch_latest_release(get)
+    return release.tag if release else None
+
+
+def clean_notes(text: object) -> str:
+    """Release notes made safe to show: a string, no control characters, at most NOTES_MAX_CHARS."""
+    if not isinstance(text, str):
+        return ""
+    text = CONTROL_CHARS.sub("", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
+    if len(text) > NOTES_MAX_CHARS:
+        text = text[:NOTES_MAX_CHARS].rstrip() + NOTES_CUT_MARK
+    return text
+
+
+def _release_url(url: object) -> str:
+    """The release page only when it is on this project's GitHub releases; anything else is dropped."""
+    return url if isinstance(url, str) and url.startswith(RELEASE_URL_PREFIX) else ""
 
 
 def compare_versions(current: str, latest: str) -> VersionInfo:
@@ -90,25 +134,32 @@ def cached_info(current: str, path: Path = CACHE_PATH) -> VersionInfo | None:
     if not cache or cache.get("app_version") != current:
         return None
     info = cache.get("version_info") or {}
-    return VersionInfo(str(info.get("status", UNKNOWN)), str(info.get("message", "")), str(info.get("latest", "")))
+    return VersionInfo(str(info.get("status", UNKNOWN)), str(info.get("message", "")), str(info.get("latest", "")),
+                       clean_notes(info.get("notes")), _release_url(info.get("url")))
 
 
 def check_for_update(
-    current: str, path: Path = CACHE_PATH, now: float | None = None, fetch: Callable[[], str | None] = fetch_latest_version,
-    force: bool = False,
+    current: str, path: Path = CACHE_PATH, now: float | None = None,
+    fetch: Callable[[], Release | str | None] = fetch_latest_release, force: bool = False,
 ) -> VersionInfo:
-    """The cached result while it is fresh, otherwise (or when forced) a new check, saved to the cache."""
+    """The cached result while it is fresh, otherwise (or when forced) a new check, saved to the cache.
+
+    fetch returns a Release, or only the tag as a string."""
     now = time.time() if now is None else now
     cache = _load(path)
     if cache and not force and not _is_stale(cache, current, now):
         return cached_info(current, path) or unavailable(current)
-    latest = fetch()
-    info = compare_versions(current, latest) if latest else unavailable(current)
+    fetched = fetch()
+    release = Release(fetched) if isinstance(fetched, str) else fetched
+    info = unavailable(current)
+    if release:
+        info = replace(compare_versions(current, release.tag), notes=release.notes, url=release.url)
     _save(path, {
         "timestamp": now,
         "app_version": current,
-        "latest_version": latest,
-        "version_info": {"status": info.status, "message": info.message, "latest": info.latest},
+        "latest_version": release.tag if release else None,
+        "version_info": {"status": info.status, "message": info.message, "latest": info.latest,
+                         "notes": info.notes, "url": info.url},
     })
     return info
 
@@ -116,7 +167,10 @@ def check_for_update(
 def _is_stale(cache: dict, current: str, now: float) -> bool:
     if cache.get("app_version") != current:
         return True
-    ok = (cache.get("version_info") or {}).get("status") in (CURRENT, OUTDATED)
+    info = cache.get("version_info") or {}
+    if info.get("status") == OUTDATED and "notes" not in info:
+        return True  # written before release notes were cached: fetch them now
+    ok = info.get("status") in (CURRENT, OUTDATED)
     age = now - float(cache.get("timestamp") or 0)
     return age >= (SUCCESS_TTL_S if ok else FAILURE_TTL_S)
 

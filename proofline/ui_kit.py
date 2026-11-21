@@ -11,6 +11,7 @@ Style sheets resolve colours once, so call apply_style() again after a theme cha
 
 from __future__ import annotations
 
+import html
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -229,6 +230,15 @@ def apply_style(widget: QWidget, accent: str, extra: Callable[[Tokens], str] | N
     for switch in widget.findChildren(ToggleSwitch):
         switch.set_colors(readable_accent(accent, tokens), tokens.off_track)
     return tokens
+
+
+def plain_tooltip(text: str) -> str:
+    """Tooltip text that Qt will not read as markup. Qt shows a tooltip holding a tag as rich
+    text, and rich text can load an image from a network path; text from a server, another
+    program's window or the settings file is escaped here so it is shown as written."""
+    if "<" not in text:
+        return text
+    return "<qt>" + html.escape(text).replace("\n", "<br>") + "</qt>"
 
 
 def set_object_name(widget: QWidget, name: str) -> None:

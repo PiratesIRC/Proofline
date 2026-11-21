@@ -65,6 +65,8 @@ LOG_UNREADABLE_MESSAGE = "Proofline could not read its AI usage log, so the spen
 FAILED_MESSAGE = "The AI request failed."
 # sent, maybe billed, no token counts back (a bad_response without counts is billed the same way)
 UNKNOWN_OUTCOME_KINDS = ("timeout", "network", "server", "bad_response")
+# a failed request of one of these kinds means the key or the server does not work (see problem())
+PROBLEM_KINDS = ("auth", "network", "timeout", "server")
 CENTS_PER_DOLLAR = 100
 REPORTED_COST_FACTOR = 10  # a reported cost above this many times the worst case at list price is not believed
 
@@ -72,6 +74,7 @@ REPORTED_COST_FACTOR = 10  # a reported cost above this many times the worst cas
 class AiService(QObject):
     finished = pyqtSignal(object, object)  # AiRequest, AiResult
     failed = pyqtSignal(object, str, str)  # AiRequest, one-line message for the user, kind (see _refusal)
+    status_changed = pyqtSignal()  # problem() may answer differently now
 
     def __init__(
         self,
@@ -90,6 +93,7 @@ class AiService(QObject):
         self._busy = False
         self._has_key: dict[str, bool] = {}  # per provider id, cached for available()
         self._key_rejected: dict[str, bool] = {}  # per provider id: the API refused its key
+        self._last_problem: dict[str, str] = {}  # per provider id: the message of its last failed request
         self._live_prices: dict[str, tuple[ModelPrice, ...]] = {}
         self._unrecorded: list[UsageEntry] = []  # entries the log could not be written with, this session only
         self._unreadable_logged = False  # the unreadable-log warning is written once per session
@@ -149,6 +153,23 @@ class AiService(QObject):
             return False
         return spec.key != "required" or self._has_saved_key(spec.id)
 
+    def problem(self) -> str | None:
+        """Why AI cannot work although it is turned on, as one line for the tray; None when it is off
+        or nothing is known to be wrong.
+
+        Known problems: the selected provider needs a key and none is saved, or its last request
+        failed because the key was refused or the server could not be reached, timed out or had an
+        error. The next request that succeeds, or a saved or removed key, clears it. Nothing is sent
+        to find this out.
+        """
+        config = self._config_provider()
+        if not config.ai_enabled:
+            return None
+        spec = provider(config.ai_provider)
+        if spec.key == "required" and not self._has_saved_key(spec.id):
+            return NO_KEY_MESSAGE
+        return self._last_problem.get(spec.id)
+
     def _has_saved_key(self, pid: str) -> bool:
         if pid not in self._has_key:
             try:
@@ -164,9 +185,12 @@ class AiService(QObject):
         if pid is None:
             self._has_key.clear()
             self._key_rejected.clear()
+            self._last_problem.clear()
         else:
             self._has_key.pop(pid, None)
             self._key_rejected.pop(pid, None)
+            self._last_problem.pop(pid, None)
+        self.status_changed.emit()
 
     def set_live_prices(self, pid: str, prices: tuple[ModelPrice, ...]) -> None:
         """The prices fetched at runtime for provider pid; replaces any earlier list."""
@@ -263,6 +287,8 @@ class AiService(QObject):
     def _on_done(self, attempt: _Attempt, result: AiResult) -> None:
         self._busy = False
         self._key_rejected.pop(attempt.spec.id, None)
+        self._last_problem.pop(attempt.spec.id, None)
+        self.status_changed.emit()
         if _counts_missing(attempt, result):  # a priced answer with no token counts: assume the worst case
             request = attempt.request
             self._record(attempt, estimate_input_tokens(request.text), request.max_tokens, estimated=True)
@@ -292,7 +318,11 @@ class AiService(QObject):
             self._key_rejected[spec.id] = True
         log.warning("AI request failed (%s, %s, %s)", request.job, spec.id,
                     exc.kind if isinstance(exc, AiError) else type(exc).__name__)
-        self.failed.emit(request, exc.message if isinstance(exc, AiError) else FAILED_MESSAGE, kind)
+        message = exc.message if isinstance(exc, AiError) else FAILED_MESSAGE
+        if kind in PROBLEM_KINDS:
+            self._last_problem[spec.id] = message
+            self.status_changed.emit()
+        self.failed.emit(request, message, kind)
 
     def _record_error(self, attempt: _Attempt, exc: Exception) -> None:
         """Record what a failed attempt cost: its reported tokens, else the worst case when the outcome is unknown."""

@@ -36,11 +36,18 @@ FIND = "find"  # the job of a request; a rewrite style id otherwise
 TEXT_TOO_LONG_MESSAGE = "This text is too long for AI (over 8,000 characters)."
 
 Deliver = Callable[[FieldSnapshot, tuple[Match, ...]], None]
+NO_NEW_TEXT_MESSAGE = "There is no text of your own here to send (only earlier messages)."
 
 
 class IssueFinder(QObject):
-    def __init__(self, service: AiService, popup: IssuesPopup, deliver: Deliver) -> None:
+    def __init__(self, service: AiService, popup: IssuesPopup, deliver: Deliver,
+                 own_text: Callable[[str], str] = lambda text: text) -> None:
+        """own_text: the part of a field's text to send, a prefix of it (the app passes the text
+        without the earlier messages quoted in an email reply, which other people wrote and
+        which could carry instructions aimed at the AI)."""
         super().__init__()
+        self._own_text = own_text
+        self._sent_text = ""  # what the current request was built from
         self._service = service
         self._popup = popup
         self._deliver = deliver
@@ -62,16 +69,21 @@ class IssueFinder(QObject):
     def start(self, snapshot: FieldSnapshot) -> None:
         """Find more issues: show "Asking the AI..." with Cancel, then send the field text."""
         log.info("Find more issues requested (%d characters)", len(snapshot.text))
-        self._send(snapshot, FIND, find_issues_request(snapshot.text))
+        self._send(snapshot, FIND, find_issues_request)
 
     def start_rewrite(self, snapshot: FieldSnapshot, style_id: str) -> None:
         """Rewrite for clarity or Change tone (style_id from ai_rewrite.STYLES), shown as change rows."""
         log.info("Rewrite (%s) requested (%d characters)", style_id, len(snapshot.text))
-        self._send(snapshot, style_id, rewrite_request(style_id, snapshot.text))
+        self._send(snapshot, style_id, lambda text: rewrite_request(style_id, text))
 
-    def _send(self, snapshot: FieldSnapshot, job: str, request: AiRequest) -> None:
+    def _send(self, snapshot: FieldSnapshot, job: str, build: Callable[[str], AiRequest]) -> None:
         self._end()
         self._snapshot, self._job = snapshot, job
+        self._sent_text = self._own_text(snapshot.text)
+        if not self._sent_text.strip():
+            self._show(NO_NEW_TEXT_MESSAGE)
+            return
+        request = build(self._sent_text)
         self._show(WAITING_TEXT, cancel=True)
         self._request = request
         self._service.submit(request)  # a refusal arrives through failed, inside this call
@@ -93,9 +105,9 @@ class IssueFinder(QObject):
             self._end()
             return
         if self._job == FIND:
-            self._show_found(snapshot, issue_matches(result, snapshot.text), NOTHING_FOUND_MESSAGE)
+            self._show_found(snapshot, issue_matches(result, self._sent_text), NOTHING_FOUND_MESSAGE)
             return
-        outcome = rewrite_outcome(result, snapshot.text, self._job)
+        outcome = rewrite_outcome(result, self._sent_text, self._job)
         notes = [MOSTLY_CHANGED_MESSAGE] if outcome.mostly_changed and outcome.matches else []
         if outcome.skipped:
             notes.append(SKIPPED_MESSAGE.format(count=outcome.skipped))

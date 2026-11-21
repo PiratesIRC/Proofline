@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 from proofline.app_names import running_apps
 from proofline.hotkeys import display_hotkey, hotkey_from_key
 from proofline.server_test import ServerStatus, StatusLevel
-from proofline.ui_kit import set_object_name
+from proofline.ui_kit import plain_tooltip, set_object_name
 
 # Common LanguageTool categories (ids from Categories.java) with the names people know them by.
 CATEGORY_NAMES: dict[str, str] = {
@@ -121,7 +121,7 @@ class CategoryChecklist(QWidget):
 
     def _add_box(self, category: str) -> None:
         box = QCheckBox(CATEGORY_NAMES.get(category, category))
-        box.setToolTip(category)
+        box.setToolTip(plain_tooltip(category))
         box.toggled.connect(lambda _on: self.changed.emit())
         index = len(self._boxes)
         self._grid.addWidget(box, index // CHECKLIST_COLUMNS, index % CHECKLIST_COLUMNS)

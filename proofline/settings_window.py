@@ -24,8 +24,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from proofline import __version__
 from proofline.ai_settings_page import AiPage
 from proofline.config import (
+    IS_PORTABLE,
     Config,
     ConfigError,
     is_insecure_remote,
@@ -43,10 +45,11 @@ from proofline.settings_pages import (
     ShortcutsPage,
 )
 from proofline.ui_kit import InfoBar, apply_style
+from proofline.update_check import VersionInfo
 
 log = logging.getLogger(__name__)
 
-WINDOW_TITLE = "Proofline – Settings"
+WINDOW_TITLE = f"Proofline {__version__}{' (portable)' if IS_PORTABLE else ''} – Settings"
 DEFAULT_SIZE = (900, 640)
 MIN_SIZE = (760, 520)
 NAV_WIDTH = 230
@@ -137,6 +140,10 @@ class SettingsWindow(QWidget):
 
     def refresh_style(self) -> None:
         apply_style(self, self._config_provider().tray_color)
+
+    def set_release(self, info: VersionInfo | None) -> None:
+        """Show the waiting release's notes and download link on Advanced; None hides them."""
+        self.advanced.show_release(info)
 
     def set_update_status(self, status: str) -> None:
         """Show the latest update check result (from the cache; never a network call)."""

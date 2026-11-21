@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import string
 from collections.abc import Callable
 from typing import Any
 
@@ -16,8 +17,9 @@ from proofline.ai_http import message
 from proofline.ai_types import AiError
 
 SUPPORTED_KEYWORDS = frozenset({"type", "properties", "required", "additionalProperties", "items", "enum"})
+MAX_ANSWER_CHARS = 200_000
+_FENCE = "```"
 _LEADING_THINK = re.compile(r"\s*<think>.*?</think>", re.DOTALL)
-_FENCED = re.compile(r"```[A-Za-z]*\s*(.*?)\s*```", re.DOTALL)
 _TYPE_CHECKS: dict[str, Callable[[Any], bool]] = {
     "object": lambda value: isinstance(value, dict),
     "array": lambda value: isinstance(value, list),
@@ -35,14 +37,21 @@ def token_count(data: dict, name: str) -> int:
 
 
 def parse_answer(text: str, schema: dict, label: str, input_tokens: int, output_tokens: int) -> dict:
-    """The answer as a JSON object matching schema; a leading think block and one code fence are removed."""
-    try:
-        data = json.loads(_strip_wrappers(text))
-    except ValueError:
-        data = None
+    """The answer as a JSON object matching schema; a leading think block and one code fence are removed.
+
+    An answer longer than MAX_ANSWER_CHARS is refused as unreadable, without being parsed.
+    """
+    data = _decode(text) if len(text) <= MAX_ANSWER_CHARS else None
     if not isinstance(data, dict) or not schema_matches(data, schema):
         raise AiError("bad_response", message("bad_response", label), input_tokens, output_tokens)
     return data
+
+
+def _decode(text: str) -> Any:
+    try:
+        return json.loads(_strip_wrappers(text))
+    except ValueError:
+        return None
 
 
 def _strip_wrappers(text: str) -> str:
@@ -50,9 +59,19 @@ def _strip_wrappers(text: str) -> str:
     leading = _LEADING_THINK.match(cleaned)
     if leading:
         cleaned = cleaned[leading.end():]
-    cleaned = cleaned.strip()
-    fenced = _FENCED.fullmatch(cleaned)
-    return fenced.group(1) if fenced else cleaned
+    return _unfence(cleaned.strip())
+
+
+def _unfence(text: str) -> str:
+    """The body of a text wrapped in a code fence, without an ASCII-letter language tag; else text unchanged.
+
+    String operations, not a regex: a pattern with adjacent unbounded quantifiers backtracks cubically
+    on a long answer that does not match it.
+    """
+    if len(text) < 2 * len(_FENCE) or not (text.startswith(_FENCE) and text.endswith(_FENCE)):
+        return text
+    inner = text[len(_FENCE):-len(_FENCE)]
+    return inner.lstrip(string.ascii_letters).strip()
 
 
 def schema_matches(data: Any, schema: dict) -> bool:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,7 +12,8 @@ from PyQt6.QtCore import QObject, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
-from proofline import ai_keys
+from proofline import __version__, ai_keys
+from proofline import tray as tray_menu
 from proofline.ai_find import IssueFinder
 from proofline.ai_service import AiService
 from proofline.ai_setup import AiSetup
@@ -30,14 +32,23 @@ from proofline.integration import DesktopIntegration
 from proofline.logging_setup import set_debug_mode
 from proofline.overlay_controller import OverlayController
 from proofline.quick_settings import QuickSettings, connected_message
+from proofline.quoted_text import checked_part, quoted_ranges
 from proofline.rephrase import CARET_UNKNOWN_MESSAGE, Rephraser
 from proofline.replace_request import ReplaceRequest
+from proofline.restart import start_new_copy
+from proofline.settings_pages import CHANGELOG_URL
 from proofline.settings_window import SettingsWindow
 from proofline.setup_hints import SetupHint, unseen
 from proofline.text_monitor import TextMonitor
 from proofline.text_snapshot import FieldSnapshot, logged_title
 from proofline.tray import TrayIcon
-from proofline.update_check import RELEASES_PAGE_URL, UpdateChecker
+from proofline.tray_flyout import PAUSE_HOUR, PAUSE_TODAY
+from proofline.update_check import (
+    OUTDATED,
+    RELEASES_PAGE_URL,
+    UpdateChecker,
+    VersionInfo,
+)
 from proofline.usage import UsageReporting
 from proofline.welcome import WelcomeWindow, should_show_welcome
 
@@ -63,8 +74,10 @@ class LanguageToolApp(QObject):
         updates: UpdateChecker | None = None,
         usage: UsageReporting | None = None,
         ai: AiService | None = None,
+        start_copy: Callable[[], bool] = start_new_copy,
     ) -> None:
         super().__init__()
+        self._start_new_copy = start_copy
         self._qt_app = qt_app
         self._config_path = config_path
         self._config_existed = config_path.exists()  # no settings file yet: a fresh install
@@ -104,7 +117,7 @@ class LanguageToolApp(QObject):
         self._overlay.rephrase_requested.connect(self._rephraser.start)
         self._monitor.field_changed.connect(self._rephraser.on_field_changed)
         self._monitor.caret_offset_ready.connect(self._on_caret_offset)
-        self._finder = IssueFinder(self._ai, self._overlay.popup, self._overlay.set_ai_matches)
+        self._finder = IssueFinder(self._ai, self._overlay.popup, self._overlay.set_ai_matches, self._own_text)
         self._overlay.find_more_requested.connect(self._finder.start)
         self._overlay.rewrite_requested.connect(self._finder.start_rewrite)
         self._monitor.field_changed.connect(self._finder.on_field_changed)
@@ -142,13 +155,17 @@ class LanguageToolApp(QObject):
         self._settings.shortcut_recording.connect(self._integration.set_hotkeys_suspended)
 
         self._updates = updates or UpdateChecker(lambda: self._config.check_for_updates)
-        self._updates.checked.connect(lambda info: self._show_update_status())
+        self._report_next_check = False  # the tray menu's "Check for updates" shows its result once
+        self._updates.checked.connect(self._on_update_checked)
         self._updates.newer_version.connect(self._on_newer_version)
         self._settings.update_check_requested.connect(lambda: self._updates.check_now(force=True))
         self._show_update_status()
 
         self._usage = usage or UsageReporting(lambda: self._config)
         self._ai_setup = AiSetup(self._settings.ai, self._ai, lambda: self._config, ai_keys.KeyStore())
+        self._ai.status_changed.connect(self._show_ai_state)
+        self._show_ai_state()
+        self._tray.menu_action.connect(self._on_menu_action)
 
     @property
     def config(self) -> Config:
@@ -182,6 +199,7 @@ class LanguageToolApp(QObject):
         self._ai_setup.config_changed(previous)
         self._settings.config_changed()
         self._quick.refresh()
+        self._show_ai_state()
         if (config.server_url, config.language) != (previous.server_url, previous.language):
             self._health.check_now()
         if config.check_for_updates != previous.check_for_updates:
@@ -200,6 +218,13 @@ class LanguageToolApp(QObject):
             self._overlay.apply_first_suggestion()
         elif action == "ai_rephrase" and self._ai.available():
             self._monitor.request_caret_offset()
+
+    def _own_text(self, text: str) -> str:
+        """The text the AI actions get: without the earlier messages of an email reply or forward
+        when those run to the end of the text (the same rule the LanguageTool check uses)."""
+        if not self._config.skip_quoted_replies:
+            return text
+        return checked_part(text, quoted_ranges(text))
 
     def _on_caret_offset(self, snapshot: FieldSnapshot, offset: int | None) -> None:
         """The AI shortcut's answer from the monitor: rephrase the sentence at the caret."""
@@ -337,21 +362,81 @@ class LanguageToolApp(QObject):
             self._notify(message)
 
     def _show_update_status(self) -> None:
+        """Settings and the tray follow the cached check result: the status line, the release
+        notes, and the tray's dot, tooltip line and menu item while a newer release waits."""
         info = self._updates.current_info()
+        waiting = info if info is not None and info.status == OUTDATED else None
+        self._tray.set_update(waiting.latest if waiting else None)
+        self._settings.set_release(waiting)
         if not self._config.check_for_updates and info is None:
             self._settings.set_update_status("Update checks are off")
             return
         self._settings.set_update_status(info.message if info else "")
 
+    def _on_update_checked(self, info: VersionInfo) -> None:
+        self._show_update_status()
+        if not self._report_next_check:
+            return
+        self._report_next_check = False  # asked for from the tray menu: say what the check found
+        if info.status == OUTDATED:
+            self._announce_release(info.latest)
+        else:
+            self._show_message(APP_NAME, info.message, QSystemTrayIcon.MessageIcon.Information, NOTIFICATION_MS)
+
     def _on_newer_version(self, version: str) -> None:
         """Tell the user about a new release once, even across restarts."""
-        key = UPDATE_HINT_PREFIX + version
-        if key in self._config.shown_hints:
-            return
+        if UPDATE_HINT_PREFIX + version not in self._config.shown_hints:
+            self._announce_release(version)
+
+    def _announce_release(self, version: str) -> None:
+        """The Windows notification for a new release; clicking it opens that release's page."""
         log.info("Announcing Proofline %s", version)
-        self._show_message(APP_NAME, f"Proofline {version} is available.",
-                           QSystemTrayIcon.MessageIcon.Information, HINT_NOTIFICATION_MS, RELEASES_PAGE_URL)
-        self._save_quietly(replace(self._config, shown_hints=(*self._config.shown_hints, key)))
+        self._show_message(APP_NAME, f"Proofline {version} is available. You have {__version__}.",
+                           QSystemTrayIcon.MessageIcon.Information, HINT_NOTIFICATION_MS, self._release_url())
+        key = UPDATE_HINT_PREFIX + version
+        if key not in self._config.shown_hints:
+            self._save_quietly(replace(self._config, shown_hints=(*self._config.shown_hints, key)))
+
+    def _release_url(self) -> str:
+        info = self._updates.current_info()
+        return (info.url if info else "") or RELEASES_PAGE_URL
+
+    def _show_ai_state(self) -> None:
+        """Amber tray icon while AI is on but its key or server fails."""
+        self._tray.set_ai_problem(self._ai.problem())
+
+    def _on_menu_action(self, name: str) -> None:
+        """An item of the tray's right-click menu (see tray.py for the names)."""
+        handlers = {
+            tray_menu.PAUSE_HOUR: lambda: self._quick.set_checking_mode(PAUSE_HOUR),
+            tray_menu.PAUSE_TODAY: lambda: self._quick.set_checking_mode(PAUSE_TODAY),
+            tray_menu.CHECK_FIELD: self._monitor.request_check_now,
+            tray_menu.TOGGLE_APP: self._quick.toggle_current_app,
+            tray_menu.OPEN_UPDATE: lambda: QDesktopServices.openUrl(QUrl(self._release_url())),
+            tray_menu.CHECK_UPDATES: self._check_updates_from_menu,
+            tray_menu.WHATS_NEW: lambda: QDesktopServices.openUrl(QUrl(CHANGELOG_URL)),
+            tray_menu.OPEN_LOGS: self._settings.advanced.open_log_folder,
+            tray_menu.COPY_REPORT: self._copy_report,
+            tray_menu.RESTART: self._restart,
+        }
+        log.info("Tray menu: %s", name)
+        handlers[name]()
+
+    def _check_updates_from_menu(self) -> None:
+        self._report_next_check = True
+        self._updates.check_now(force=True)
+
+    def _copy_report(self) -> None:
+        self._settings.advanced.copy_report()
+        self._show_message(APP_NAME, "Diagnostic report copied. Paste it into your issue report.",
+                           QSystemTrayIcon.MessageIcon.Information, NOTIFICATION_MS)
+
+    def _restart(self) -> None:
+        """Start a new copy that waits for this one, then quit; keep running if it cannot start."""
+        if self._start_new_copy():
+            self._quit()
+        else:
+            self._notify("Proofline could not restart itself. Quit it and start it again.")
 
     def _quit(self) -> None:
         log.info("Quit requested")

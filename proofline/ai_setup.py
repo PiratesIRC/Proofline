@@ -263,8 +263,12 @@ class AiSetup(QObject):
         if not address:
             return
 
+        # Decided here, on the GUI thread, together with the address: a fetch can wait in the thread
+        # pool, and a key saved meanwhile for a new address must not be sent to this one.
+        key = self._list_key(pid, address)
+
         def fetch():
-            return self._list_models(spec, address, self._list_key(pid, address))
+            return self._list_models(spec, address, key)
 
         run_in_background(fetch, lambda choices: self._on_models(pid, address, choices),
                           lambda exc: self._on_models_failed(pid, address, exc, retry))
@@ -274,9 +278,14 @@ class AiSetup(QObject):
         public), and for an address that is not encrypted; otherwise the provider's saved key."""
         if provider(pid).key == "none" or pid == OPENROUTER_ID or is_insecure_remote(address):
             return None
-        if pid == OTHER_ID and not self._config_provider().other_key_applies():
+        config = self._config_provider()
+        if pid == OTHER_ID and not (config.other_key_applies() and config.ai_address_for(pid) == address):
+            return None  # the key is bound to another address than the one being asked
+        try:
+            return self._keys.load(pid)
+        except Exception:
+            log.warning("Could not read an API key from Credential Manager", exc_info=True)
             return None
-        return self._keys.load(pid)
 
     def _still_current(self, pid: str, address: str) -> bool:
         """False when the address was changed while a list was being fetched for it."""

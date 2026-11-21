@@ -20,6 +20,7 @@ from proofline.lt_client import (
     ERROR_RESPONSE,
     ERROR_SSL,
     ERROR_TIMEOUT,
+    HTTP_REDIRECT_RANGE,
     LanguageToolClient,
     LanguageToolError,
 )
@@ -88,6 +89,9 @@ def describe_error(exc: LanguageToolError, safe_url: str) -> ServerStatus:
 
 
 def _describe_http(status: int, body: str) -> ServerStatus:
+    if status in HTTP_REDIRECT_RANGE:
+        return ServerStatus(StatusLevel.PROBLEM, "Redirected",
+                          f"The server answered with a redirect (HTTP {status}). Check the address in Settings.")
     if status in HTTP_UNAUTHORIZED:
         return ServerStatus(StatusLevel.PROBLEM, "Password required",
                           "The server refused the request. Put the login in the address: https://user:password@host")

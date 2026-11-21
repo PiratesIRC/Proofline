@@ -53,8 +53,11 @@ def replace_in_focused_field(request: ReplaceRequest) -> None:
         # The selection wait above can take up to SELECTION_TIMEOUT_S, and the clipboard backup
         # more; the user may switch windows meanwhile, so check again right before each key.
         if request.replacement:
+            before = read()
+            expected = (before[:request.offset] + request.replacement
+                        + before[request.offset + request.length:])
             paste_text(request.replacement, send_keys=lambda: _send_if_still_focused(request, send_ctrl_v),
-                       wait_until_pasted=paste_waiter(read, read()))
+                       wait_until_pasted=paste_waiter(read, before, expected=expected))
         else:  # pasting an empty clipboard is not a reliable way to delete
             _send_if_still_focused(request, send_delete)
     except comtypes.COMError as exc:
@@ -91,23 +94,32 @@ def paste_waiter(
     before: str,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
-) -> Callable[[], None]:
-    """A wait that returns once the field's text differs from `before` (the program has read the
-    clipboard), or after PASTE_CONFIRM_S. The field is not read while its program does not answer
-    (a UIA read would block until it does)."""
-    def wait() -> None:
+    expected: str | None = None,
+) -> Callable[[], bool]:
+    """A wait that returns True once the field shows the paste, or False after PASTE_CONFIRM_S.
+
+    With `expected` (the text the field should hold afterwards) only that text counts. Any
+    other change does not: the program in the field controls what it reports, and a page that
+    changed its own text, or held the paste back, would otherwise get the user's clipboard put
+    back while its paste was still waiting, and receive that. Without `expected`, any change
+    from `before` counts. The field is not read while its program does not answer (a UIA read
+    would block until it does)."""
+    def shows_paste(current: str) -> bool:
+        return current == expected if expected is not None else current != before
+
+    def wait() -> bool:
         started = clock()
         while clock() - started < PASTE_CONFIRM_S:
             if not window_response.not_responding(window_response.focused_window()):
                 try:
-                    if read() != before:
+                    if shows_paste(read()):
                         log.debug("Paste confirmed after %.0f ms", (clock() - started) * MS_PER_S)
-                        return
+                        return True
                 except (comtypes.COMError, Win32EditError, OSError):
                     pass  # the element is busy or changing; try again on the next round
             sleep(PASTE_POLL_S)
-        log.warning("The field did not change within %.1f s of Ctrl+V; restoring the clipboard anyway",
-                    PASTE_CONFIRM_S)
+        log.warning("The field did not show the correction within %.1f s of Ctrl+V", PASTE_CONFIRM_S)
+        return False
 
     return wait
 

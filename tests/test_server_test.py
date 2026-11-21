@@ -1,4 +1,7 @@
+from unittest.mock import MagicMock
+
 import pytest
+import requests
 
 from proofline.lt_client import (
     ERROR_CONNECT,
@@ -7,6 +10,7 @@ from proofline.lt_client import (
     ERROR_RESPONSE,
     ERROR_SSL,
     ERROR_TIMEOUT,
+    LanguageToolClient,
     LanguageToolError,
 )
 from proofline.server_test import (
@@ -64,6 +68,7 @@ def test_client_error_is_described():
         (LanguageToolError("", ERROR_SSL), StatusLevel.UNREACHABLE, "Secure connection failed"),
         (LanguageToolError("", ERROR_RESPONSE), StatusLevel.PROBLEM, "Not a LanguageTool server"),
         (LanguageToolError("Too many redirects", ERROR_REQUEST), StatusLevel.UNREACHABLE, "Connection failed"),
+        (LanguageToolError("", ERROR_HTTP, 302), StatusLevel.PROBLEM, "Redirected"),
         (LanguageToolError("", ERROR_HTTP, 401), StatusLevel.PROBLEM, "Password required"),
         (LanguageToolError("", ERROR_HTTP, 404), StatusLevel.PROBLEM, "Not a LanguageTool server"),
         (
@@ -79,3 +84,13 @@ def test_describe_error(error, level, title):
     result = describe_error(error, "http://lt/v2/check")
     assert (result.level, result.title) == (level, title)
     assert result.detail
+
+
+def test_redirect_from_server_is_reported_as_a_problem():
+    session = MagicMock(spec=requests.Session)
+    session.post.return_value = MagicMock(status_code=307, headers={"Location": "http://evil.example/"}, text="")
+    client = LanguageToolClient("http://127.0.0.1:8010", "auto", session=session)
+    result = run_server_test("http://127.0.0.1:8010", "auto", client)
+    assert (result.level, result.title) == (StatusLevel.PROBLEM, "Redirected")
+    assert "evil.example" not in result.detail
+    assert session.post.call_args.kwargs["allow_redirects"] is False

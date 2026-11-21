@@ -34,7 +34,11 @@ from proofline.config import Config
 from proofline.dictionary import filter_matches, ignore_key
 from proofline.issue_card import IssueCard
 from proofline.lt_client import Match
-from proofline.overlay_widgets import IssuesPopup, offered_replacements
+from proofline.overlay_widgets import (
+    MAX_LISTED_MATCHES,
+    IssuesPopup,
+    offered_replacements,
+)
 from proofline.rephrase import RephraseTarget
 from proofline.replace_request import ReplaceRequest
 from proofline.screen_coords import (
@@ -174,7 +178,8 @@ class OverlayController(QObject):
 
     def accept_all_ai(self) -> bool:
         """Apply every listed AI suggestion that has a fix as one verified replacement; False if none."""
-        fixes = non_overlapping((m, offered_replacements(m)[0]) for m in self._matches
+        # Only the rows the popup lists: a change the user was never shown is not applied.
+        fixes = non_overlapping((m, offered_replacements(m)[0]) for m in self._matches[:MAX_LISTED_MATCHES]
                                 if is_ai_match(m) and offered_replacements(m))
         if not self._apply_combined(fixes, AI_RULE_ID, AI_CATEGORY):
             return False

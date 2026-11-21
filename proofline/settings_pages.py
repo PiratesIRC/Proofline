@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QDesktopServices, QGuiApplication, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
+    QFrame,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -60,7 +61,7 @@ from proofline.ui_kit import (
     ToggleSwitch,
     set_link_text,
 )
-from proofline.update_check import RELEASES_PAGE_URL
+from proofline.update_check import RELEASES_PAGE_URL, VersionInfo
 from proofline.workers import run_in_background
 
 log = logging.getLogger(__name__)
@@ -92,6 +93,12 @@ LANGUAGETOOL_URL = "https://languagetool.org"
 UPDATES_DESCRIPTION = "Asks GitHub once a day whether a newer Proofline release exists. Sends none of your text."
 UPDATES_OFF_TEXT = "Update checks are off"
 CHECKING_UPDATES_TEXT = "Checking for updates…"
+QUOTED_DESCRIPTION = ("In a reply or forward, check only what you write, not the earlier messages under it "
+                      "(found by their From and Sent lines or an \"On ... wrote:\" line)")
+RELEASE_TITLE ="What's new in {version}"
+RELEASE_NO_NOTES_TEXT = "This release has no notes."
+RELEASE_DOWNLOAD_TEXT = "Download this release"
+RELEASE_KEYWORDS = "update version release download what's new notes"
 SHARE_USAGE_DESCRIPTION = (
     "Sends the number of corrections and AI changes you applied, with random ids for this install, "
     "to the author's counter at plugin-stats.dpas.workers.dev, at most once an hour, for the Active "
@@ -282,6 +289,7 @@ class CheckingPage(Page):
         self._min_words.valueChanged.connect(lambda value: self._emit(min_words=value))
         self._picky = _switch("Picky mode", lambda on: self._emit(picky=on))
         self._hidden = _switch("Flag hidden characters", lambda on: self._emit(flag_hidden_characters=on))
+        self._quoted = _switch("Skip quoted email text", lambda on: self._emit(skip_quoted_replies=on))
         self._words = StringListEditor("", "e.g. Dispatcharr")
         self._words.items_changed.connect(lambda: self._emit(personal_dictionary=self._words.items()))
         self._rules = StringListEditor("Turned-off rules", "Rule id, e.g. WHITESPACE_RULE")
@@ -294,6 +302,8 @@ class CheckingPage(Page):
         self._min_words_card = SettingCard("Only check text with at least", "", self._min_words,
                                            keywords="minimum words length")
         self._card(self._min_words_card)
+        self._card(SettingCard("Skip quoted email text", QUOTED_DESCRIPTION, self._quoted,
+                               keywords="reply forward conversation thread outlook thunderbird gmail mail quote"))
         self._group("Suggestions")
         self._card(SettingCard("Picky mode", "Also suggest style and punctuation improvements",
                                self._picky, keywords="strict style"))
@@ -321,6 +331,7 @@ class CheckingPage(Page):
             f"{display_hotkey(shortcut)} checks any text right away" if shortcut else "")
         self._picky.setChecked(config.picky)
         self._hidden.setChecked(config.flag_hidden_characters)
+        self._quoted.setChecked(config.skip_quoted_replies)
         self._words.set_items(config.personal_dictionary)
         self._rules.set_label(lambda rule_id: rule_label(config, rule_id))
         set_link_text(self.rules_link, f'<a href="{rule_browser_url(config.language)}">{RULES_LINK_TEXT}</a>')
@@ -490,6 +501,48 @@ def validate_hotkeys(values: dict[str, str]) -> dict[str, str]:
     return cleaned
 
 
+class ReleaseCard(QFrame):
+    """What a waiting release changes, then the link to download it. Hidden while up to date.
+
+    The notes come from the network, so the label is plain text: no markup in them is rendered.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("card")
+        self._has_release = False
+        self.title_label = QLabel()
+        self.title_label.setObjectName("cardTitle")
+        self.notes_label = QLabel()
+        self.notes_label.setObjectName("cardDescription")
+        self.notes_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.notes_label.setWordWrap(True)
+        self.notes_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.download_link = _link_label(RELEASES_PAGE_URL, RELEASE_DOWNLOAD_TEXT)
+        column = QVBoxLayout(self)
+        column.setContentsMargins(16, 10, 16, 12)
+        column.setSpacing(6)
+        for widget in (self.title_label, self.notes_label, self.download_link):
+            column.addWidget(widget)
+        self.hide()
+
+    def show_release(self, info: VersionInfo | None) -> None:
+        self._has_release = info is not None
+        if info is not None:
+            self.title_label.setText(RELEASE_TITLE.format(version=info.latest))
+            self.notes_label.setText(info.notes or RELEASE_NO_NOTES_TEXT)
+            url = info.url or RELEASES_PAGE_URL
+            self.download_link.setText(f'<a href="{url}">{RELEASE_DOWNLOAD_TEXT}</a>')
+        self.setVisible(self._has_release)
+
+    def apply_filter(self, query: str) -> bool:
+        """Follow the page's search box; True when this card is showing and matches."""
+        text = f"{RELEASE_KEYWORDS} {self.title_label.text()}".casefold()
+        match = self._has_release and (not query or query.casefold() in text)
+        self.setVisible(match)
+        return match
+
+
 class AdvancedPage(Page):
     title = "Advanced"
     update_check_requested = pyqtSignal()
@@ -522,6 +575,8 @@ class AdvancedPage(Page):
         self._share_usage = _switch("Share anonymous usage counts", lambda on: self._emit(share_usage_counts=on))
         self._card(SettingCard("Share anonymous usage counts", SHARE_USAGE_DESCRIPTION, self._share_usage,
                                keywords="usage statistics telemetry privacy badge"))
+        self.release_card = ReleaseCard()
+        self._layout.addWidget(self.release_card)  # not in self.cards: shown only while a release waits
         self._storage_text = f"Settings and logs are stored in {log_dir.parent}"
         self.help_link = _link_label(HELP_URL, "Help")
         self.changelog_link = _link_label(CHANGELOG_URL, "What's new")
@@ -543,6 +598,14 @@ class AdvancedPage(Page):
     def _on_check_now(self) -> None:
         self.show_update_status(CHECKING_UPDATES_TEXT)
         self.update_check_requested.emit()
+
+    def show_release(self, info: VersionInfo | None) -> None:
+        """The waiting release's notes, then its download link; None (up to date) hides the card."""
+        self.release_card.show_release(info)
+
+    def filter(self, query: str) -> bool:
+        matched = super().filter(query)
+        return self.release_card.apply_filter(query) or matched
 
     def show_update_status(self, status: str) -> None:
         """status: the update check's one-line result ('' while none is known yet)."""

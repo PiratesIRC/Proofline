@@ -32,6 +32,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from proofline.non_activating import make_non_activating
+from proofline.ui_kit import plain_tooltip
 
 BADGE_SIZE = 36  # widget size; leaves room around the disc for the pulse ring
 DISC_DIAMETER = 24  # WCAG 2.2 target size (2.5.8) asks for at least 24 px
@@ -171,7 +172,7 @@ class BadgeWidget(QWidget):
             self._since = self._clock()  # a new state or count replays its animation
         self._state = state
         self._count = count
-        self.setToolTip(tooltip or state.tooltip)
+        self.setToolTip(plain_tooltip(tooltip) or state.tooltip)
         self.setAccessibleName(accessible_name(state, count))
         self._sync_timer()
         self.update()

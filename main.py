@@ -9,11 +9,13 @@ from PyQt6.QtCore import QLockFile
 from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from proofline.app import LanguageToolApp
+from proofline.app_icon import make_icon
 from proofline.app_identity import DISPLAY_NAME, register_app_id, set_process_app_id
 from proofline.config import APP_DATA_DIR, IS_PORTABLE, import_settings_into_portable
 from proofline.legacy import migrate_app_data, remove_legacy_registry
 from proofline.logging_setup import current_log_path, setup_logging
-from proofline.tray import ACTIVE_COLOR, make_icon
+from proofline.restart import RESTART_LOCK_TIMEOUT_MS, is_restart
+from proofline.tray import ACTIVE_COLOR
 
 APP_NAME = DISPLAY_NAME
 LOCK_FILE = APP_DATA_DIR / "app.lock"
@@ -63,7 +65,8 @@ def _run() -> int:
 
     # Held for the life of the process; Qt clears locks left by crashed processes.
     instance_lock = QLockFile(str(LOCK_FILE))
-    if not instance_lock.tryLock(LOCK_TIMEOUT_MS):
+    # After "Restart Proofline" the old copy is still quitting: wait for it to release the lock.
+    if not instance_lock.tryLock(RESTART_LOCK_TIMEOUT_MS if is_restart(sys.argv) else LOCK_TIMEOUT_MS):
         log.info("Another instance is already running; exiting")
         QMessageBox.information(
             None, APP_NAME, f"{APP_NAME} is already running. Look for the P icon in the tray."

@@ -289,6 +289,8 @@ class IssuesPopup(QWidget):
         self._notice.setObjectName("info_success")
         self._notice_label = QLabel()
         self._notice_label.setWordWrap(True)
+        # Holds a rule name from the server, a word from the field or a program's description.
+        self._notice_label.setTextFormat(Qt.TextFormat.PlainText)
         undo = link_button(UNDO_TEXT)
         undo.clicked.connect(self._on_undo)
         row = QHBoxLayout(self._notice)

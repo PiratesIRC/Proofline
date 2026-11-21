@@ -51,9 +51,10 @@ def test_does_not_read_while_the_program_does_not_respond(monkeypatch):
 def test_gives_up_after_the_limit_and_says_so(monkeypatch, caplog):
     waiter, clock, _reads = make_waiter(monkeypatch, ["This are fine."] * 1000, [True] * 1000)
     with caplog.at_level(logging.WARNING):
-        waiter()
+        confirmed = waiter()
+    assert confirmed is False
     assert text_replace.PASTE_CONFIRM_S <= clock.now < text_replace.PASTE_CONFIRM_S + 0.2
-    assert "did not change" in caplog.text
+    assert "did not show the correction" in caplog.text
 
 
 def test_a_read_error_counts_as_not_changed_yet(monkeypatch):

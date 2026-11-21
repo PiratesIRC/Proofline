@@ -16,6 +16,9 @@ from proofline.lt_client import Match
 
 REWRITE_MAX_TOKENS = 4000
 MOSTLY_CHANGED_SHARE = 0.6  # above this share of changed words the popup warns
+# A rewrite longer than this many times the text, plus the margin, is not a rewrite of it
+MAX_GROWTH_FACTOR = 2
+MAX_GROWTH_MARGIN = 200
 CLARITY = "clarity"
 
 
@@ -74,6 +77,8 @@ def rewrite_outcome(result: AiResult, text: str, style_id: str) -> RewriteOutcom
     rewritten = result.data.get("text")
     if not isinstance(rewritten, str) or not rewritten.strip():
         return RewriteOutcome((), 0, False)
+    if len(rewritten) > MAX_GROWTH_FACTOR * len(text) + MAX_GROWTH_MARGIN:
+        return RewriteOutcome((), 0, False)  # unusable, and too long to compare safely
     hunks = word_hunks(text, rewritten)
     title = STYLE_BY_ID[style_id].row_title
     matches, skipped = [], 0

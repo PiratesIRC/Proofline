@@ -26,6 +26,13 @@ from proofline.ai_providers import (
     is_valid_model_name,
     normalize_ai_address,
 )
+from proofline.server_login import (
+    LoginStore,
+    loaded_address,
+    scrub_logins,
+    split_login,
+    stored_address,
+)
 
 log = logging.getLogger(__name__)
 
@@ -103,7 +110,8 @@ DEFAULT_HOTKEY_TOGGLE = "ctrl+alt+p"
 DEFAULT_HOTKEY_CHECK_NOW = "ctrl+alt+l"
 DEFAULT_HOTKEY_FIX_FIRST = "ctrl+alt+j"
 BOOL_FIELDS = ("enabled", "debug_mode", "badge_always_visible", "picky", "start_with_windows", "check_for_updates",
-               "share_usage_counts", "welcome_shown", "flag_hidden_characters", "show_underlines", "ai_enabled")
+               "share_usage_counts", "welcome_shown", "flag_hidden_characters", "show_underlines", "ai_enabled",
+               "skip_quoted_replies")
 AI_CAP_CENTS_RANGE = (10, 10_000)  # $0.10 to $100 a month
 AI_MODEL_SEPARATOR = "="  # ai_models entries look like "groq=openai/gpt-oss-20b"
 OLLAMA_ID = "ollama"
@@ -235,6 +243,7 @@ class Config:
     disabled_categories: tuple[str, ...] = ()
     picky: bool = False
     flag_hidden_characters: bool = True  # invisible characters and unusual spaces (hidden_chars)
+    skip_quoted_replies: bool = True  # earlier messages quoted in an email reply or forward (quoted_text)
     ai_enabled: bool = False  # AI provider suggestions, sent only when asked; the key is in Credential Manager
     ai_provider: str = DEFAULT_PROVIDER  # which service receives AI requests (ai_providers.PROVIDER_IDS)
     ai_model: str = DEFAULT_MODEL  # Claude's model only; other providers use ai_models
@@ -321,12 +330,16 @@ def _logged_value(name: str, value: object, full_lists: bool) -> str:
 
 
 def redact_url(url: str) -> str:
-    """Hide any user:password@ credentials so the URL is safe to log or display."""
-    parsed = urlparse(url)
-    if "@" not in parsed.netloc:
+    """Hide any user:password@ credentials so the URL is safe to log or display.
+
+    Everything between "://" and the LAST "@" in the whole text is hidden, not only what a URL
+    parser calls the login: a password holding an unencoded "/", "?" or "#" ends the parser's
+    host part early and would otherwise be logged in full.
+    """
+    scheme, separator, rest = url.partition("://")
+    if not separator or "@" not in rest:
         return url
-    host = parsed.netloc.rsplit("@", 1)[1]
-    return urlunparse(parsed._replace(netloc=f"***@{host}"))
+    return f"{scheme}://***@{rest.rsplit('@', 1)[1]}"
 
 
 def is_insecure_remote(url: str) -> bool:
@@ -343,6 +356,14 @@ def normalize_server_url(url: str) -> str:
         raise ConfigError(
             "Server URL must start with http:// or https:// and include a host, "
             "e.g. http://127.0.0.1:8010/v2/check"
+        )
+    if "@" in parsed.path + parsed.query + parsed.fragment:
+        # A "/", "?" or "#" in the login ended the host part early; the request would go to the
+        # wrong host and the password would sit outside the part that is hidden in the log.
+        # Checked before the port, which such an address also gets wrong.
+        raise ConfigError(
+            "The user name or password in the server URL contains /, ? or #. "
+            "Write them as %2F, %3F and %23."
         )
     try:
         port = parsed.port  # raises ValueError for a port that is not a number from 0 to 65535
@@ -518,12 +539,39 @@ def _string_tuple(values: object, name: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
-def load_config(path: Path = CONFIG_PATH) -> Config:
+USE_DEFAULT_STORE = object()  # logins=...: Credential Manager for the app's own file, none for any other
+
+
+def _login_store(path: Path, logins: object) -> LoginStore | None:
+    """Where the server login is kept for the settings file at path. Only the app's own file
+    uses Credential Manager by default, so a tool or test reading another file touches nothing."""
+    if logins is USE_DEFAULT_STORE:
+        return LoginStore() if path == CONFIG_PATH else None
+    return logins  # type: ignore[return-value]
+
+
+def load_config(path: Path = CONFIG_PATH, logins: object = USE_DEFAULT_STORE) -> Config:
     """Read config.json, falling back to defaults when it is missing or invalid.
 
     A bad value falls back to its default alone; the other settings are kept. A file that did
     not load cleanly is first copied to config.json.bak, since the next save overwrites it.
+    The server login is put back into the address from Credential Manager; a file that still
+    holds the login (written before 0.4.8) is rewritten without it.
     """
+    store = _login_store(path, logins)
+    config = _read_config(path)
+    if store is None:
+        return config
+    if split_login(config.server_url)[1]:
+        try:
+            save_config(config, path, store)
+        except (OSError, ConfigError) as exc:
+            log.warning("Could not move the server login out of %s (%s)", path, exc)
+        return config
+    return replace(config, server_url=loaded_address(config.server_url, store))
+
+
+def _read_config(path: Path) -> Config:
     if not path.exists():
         log.info("No config at %s; using defaults", path)
         return Config()
@@ -567,10 +615,23 @@ def _back_up(path: Path) -> None:
     backup = path.with_name(path.name + BACKUP_SUFFIX)
     try:
         shutil.copyfile(path, backup)
+        _scrub_backup(backup)
     except OSError as exc:
         log.warning("Could not copy %s to %s (%s)", path, backup, exc)
         return
     log.warning("Copied the settings file as it was to %s", backup)
+
+
+def _scrub_backup(backup: Path) -> None:
+    """Remove a server login from the backup copy. The file may not be valid JSON, so the login
+    is found as text; a file that is not text is left as it was copied."""
+    try:
+        text = backup.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return
+    scrubbed = scrub_logins(text)
+    if scrubbed != text:
+        backup.write_text(scrubbed, encoding="utf-8")
 
 
 def with_added_defaults(config: Config) -> Config:
@@ -591,13 +652,19 @@ def with_added_defaults(config: Config) -> Config:
     return replace(config, disabled_apps=(*config.disabled_apps, *added), defaults_version=DEFAULTS_VERSION)
 
 
-def save_config(config: Config, path: Path = CONFIG_PATH) -> Config:
-    """Validate and atomically write config. Returns the normalized config."""
+def save_config(config: Config, path: Path = CONFIG_PATH, logins: object = USE_DEFAULT_STORE) -> Config:
+    """Validate and atomically write config. Returns the normalized config.
+
+    The file gets the server address without its login; the login goes to Credential Manager
+    (see server_login). The returned config keeps the login, as the app works with it.
+    """
     validated = validate(config)
     path.parent.mkdir(parents=True, exist_ok=True)
+    written = asdict(validated)
+    written["server_url"] = stored_address(validated.server_url, _login_store(path, logins))
     tmp_path = path.with_name(path.name + ".tmp")
     with tmp_path.open("w", encoding="utf-8") as handle:
-        handle.write(json.dumps(asdict(validated), indent=2))
+        handle.write(json.dumps(written, indent=2))
         handle.flush()
         os.fsync(handle.fileno())
     tmp_path.replace(path)

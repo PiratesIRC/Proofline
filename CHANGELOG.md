@@ -2,6 +2,81 @@
 
 All notable changes to this project.
 
+## 0.4.8 (2026-11-21)
+
+### Added
+- In an email reply or forward, only what you write is checked, not the earlier messages under
+  it. Proofline finds them by the lines mail programs put above them: a **From** line followed
+  by a **Sent** or **Date** line (Outlook, new Outlook, Outlook on the web, forwards), a line
+  such as `-----Original Message-----`, or an `On ... wrote:` line (Gmail, Thunderbird). The
+  earlier messages are not sent to the server at all. When the reply is typed below the quote,
+  as Thunderbird does by default, only quoted lines that start with `>` are left out, so your
+  own text is never skipped by a wrong guess. Turn this off in Settings › Checking › **Skip
+  quoted email text**.
+- A box that holds only a date, a time or both (`Mon 11/23/2026`, `8:00 AM`), such as the start
+  and end boxes of an Outlook meeting, is no longer checked.
+- The tray icon shows a dot in its corner while a newer release is waiting, the tooltip names
+  the version, and the right-click menu gets an **Update available** item that opens the
+  release page. They stay until you update. The notification for a new release now names both
+  the new version and the one you have.
+- Settings › Advanced shows what the waiting release changes (its release notes) above the link
+  to download it.
+- The tray icon turns amber when AI is turned on but cannot work: the provider needs an API key
+  and none is saved, the provider refused the key, or its server could not be reached, timed
+  out or had an error on the last request. The tooltip gives the reason. It clears when a
+  request succeeds or a key is saved. Proofline sends nothing to find this out, so a stopped
+  Ollama server shows only after an AI action fails.
+- More in the tray's right-click menu: the version, **Pause for 1 hour**, **Pause for the rest
+  of today**, **Check the current field now**, **Turn off in** (or **Turn on in**) the app you
+  were last typing in, a **Help** submenu (**Check for updates**, which shows the result as a
+  notification, **What's new**, **Open log folder**, **Copy diagnostic report**) and
+  **Restart Proofline**.
+- The Settings title bar shows the version, and "(portable)" for the portable copy.
+
+### Security
+- A login in the server address (`https://user:password@host`) is no longer written to
+  `config.json`. It is kept in Windows Credential Manager under
+  `Proofline/server-login/<host>` and put back for that host when Proofline starts. A settings
+  file from an older version is rewritten without the login the first time it is loaded, and the
+  `config.json.bak` copy made of an unreadable file has any login removed. If Credential
+  Manager cannot be written, the login stays in the file and a warning is logged. A portable
+  copy moved to another PC or Windows account asks for the login again.
+- A user name or password containing `/`, `?` or `#` was sent to the wrong host and written to
+  the log in full. Settings now refuses such an address and says to write the characters as
+  `%2F`, `%3F` and `%23`, and the log hides everything before the last `@` of an address.
+- With Debug mode off, the log held the full title of the window being typed in and the first 40
+  characters of each focused element's name (an email subject, a file name). Both are now
+  logged as a length only, as the README already stated; Debug mode logs them in full.
+- Text from the LanguageTool server (an error message, a rule name, a rule id) was shown as
+  formatted text in the tray panel's status line, the popup's notice and two tooltips. A server
+  that had been taken over, or someone intercepting an `http://` connection, could use that to
+  make Windows sign in to a computer of their choosing. These places now show the text as
+  written.
+- The LanguageTool client no longer follows redirects. A redirect could send the text of the
+  field being checked to another host, or from `https://` to `http://`. A server that redirects
+  is now reported as an error; set the address it redirects to.
+- When a program did not show a correction within two seconds (it was busy, or a web page held
+  the paste back), Proofline put your clipboard back and the late paste then delivered your own
+  clipboard to that program. The correction now stays on the clipboard for 30 more seconds in
+  that case and your clipboard is put back then, unless you copied something else meanwhile.
+  Only the expected text in the field counts as "the correction arrived"; before, any change did.
+- A key saved for a new "Other server" address could be sent to the previous address when a
+  model-list request for the old address was still waiting to run. The key is now chosen when
+  the request is started and only for the address it was saved for.
+- An AI server's answer could keep Proofline busy for minutes: one through the removal of code
+  fences from the answer, one through the word-by-word comparison of a rewrite with your text
+  (17 seconds measured for 650 repeated word pairs; 0.2 seconds at most for the same shapes now).
+  Answers over 200,000 characters and rewrites more than twice as long as the text are refused.
+- **Find more issues**, **Rewrite for clarity** and **Change tone** no longer send the earlier
+  messages of an email reply or forward to the AI provider (when **Skip quoted email text** is
+  on), so text written by someone else cannot steer the suggestions. **Accept all AI
+  suggestions** now applies only the changes the popup lists, not the ones behind "…and N more".
+
+### Changed
+- New icon: a rounded square with the letter and, at 32 pixels and larger, the wavy line
+  Proofline draws under a flagged word. Each size is drawn on its own, so the small tray icon is
+  sharper, and the program file now carries eight sizes (16 to 256 pixels) where it had one.
+
 ## 0.4.7 (2026-11-18)
 
 ### Security

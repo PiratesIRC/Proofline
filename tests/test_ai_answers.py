@@ -1,9 +1,12 @@
 import json
+import time
 
 import pytest
 
 from proofline.ai_answers import (
+    MAX_ANSWER_CHARS,
     SUPPORTED_KEYWORDS,
+    _strip_wrappers,
     parse_answer,
     schema_matches,
     schema_without_additional_properties,
@@ -16,6 +19,7 @@ OK_SCHEMA = {
     "required": ["ok"],
     "additionalProperties": False,
 }
+MAX_SECONDS = 2.0
 
 
 def walk_keywords(node, found, under_properties=False):
@@ -45,6 +49,65 @@ def test_parse_answer_rejects(text):
         7,
         "Mistral's answer could not be read.",
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('```json{"a":1}```', '{"a":1}'),
+        ('```\n{"a":1}\n```', '{"a":1}'),
+        ("``````", ""),
+        ("```json", "```json"),
+        ("`````", "`````"),
+        ("```json   ```", ""),
+        ("```a```b```", "```b"),
+    ],
+)
+def test_strip_wrappers_fence_forms(text, expected):
+    assert _strip_wrappers(text) == expected
+
+
+LONG_UNCLOSED = ["```" + " " * 50_000 + "x", "```" + "a" * 50_000 + "x"]
+
+
+@pytest.mark.parametrize("text", LONG_UNCLOSED, ids=["spaces", "letters"])
+def test_unclosed_fence_on_long_input_is_fast_and_unchanged(text):
+    started = time.perf_counter()
+    assert _strip_wrappers(text) == text
+    assert time.perf_counter() - started < MAX_SECONDS
+
+
+def test_closed_fence_on_long_input_is_fast_and_unwrapped():
+    text = "```" + " " * 50_000 + "x```"
+    started = time.perf_counter()
+    assert _strip_wrappers(text) == "x"
+    assert time.perf_counter() - started < MAX_SECONDS
+
+
+def test_unclosed_fence_on_long_input_is_refused_quickly():
+    started = time.perf_counter()
+    with pytest.raises(AiError) as info:
+        parse_answer("```" + "a" * 50_000 + "x", OK_SCHEMA, "X", 1, 1)
+    assert info.value.kind == "bad_response"
+    assert time.perf_counter() - started < MAX_SECONDS
+
+
+def test_answer_over_the_length_limit_is_refused_as_unreadable():
+    base = '{"ok": true}'
+    padded = base + " " * (MAX_ANSWER_CHARS + 1 - len(base))
+    with pytest.raises(AiError) as info:
+        parse_answer(padded, OK_SCHEMA, "Mistral", 7, 3)
+    assert (info.value.kind, info.value.input_tokens, info.value.message) == (
+        "bad_response",
+        7,
+        "Mistral's answer could not be read.",
+    )
+
+
+def test_answer_at_the_length_limit_is_still_read():
+    base = '{"ok": true}'
+    padded = base + " " * (MAX_ANSWER_CHARS - len(base))
+    assert parse_answer(padded, OK_SCHEMA, "X", 1, 1) == {"ok": True}
 
 
 def test_every_request_schema_uses_supported_keywords():

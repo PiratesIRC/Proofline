@@ -147,7 +147,9 @@ To set the server later, left-click the tray icon, choose **More settings**, and
 1. Enter your server address, e.g. `https://languagetool.example.org` or `http://127.0.0.1:8010`.
    `/v2/check` is added automatically. Prefer `127.0.0.1` to `localhost`: Windows tries IPv6
    first, which can add about 2 seconds to every check. A server that needs a login takes it in
-   the address: `https://user:password@host`.
+   the address: `https://user:password@host`. The login is kept in Windows Credential Manager,
+   not in the settings file. Write a `/`, `?` or `#` in the user name or password as `%2F`,
+   `%3F` or `%23`.
 2. Click **Save**. It also tests the connection: green **Ready** means checking works.
 
 If the server can't be reached, the tray icon shows a red **!** with the reason in its tooltip,
@@ -208,7 +210,23 @@ Click the badge to open the issues popup:
 Left-click the tray icon for quick settings: connection status, **Checking** (On, Pause for 1
 hour, Pause for the rest of today, Off; a pause ends on time even if the app restarts in between),
 **Picky mode** (extra style tips), **Language**, and a **Current app** card to turn checking off,
-or back on, for the app you were last typing in. Right-click the icon for the classic menu.
+or back on, for the app you were last typing in.
+
+Right-click the icon for a menu: the version, **Checking enabled**, **Pause for 1 hour**, **Pause
+for the rest of today**, **Check the current field now**, **Turn off in** (or **Turn on in**) the
+app you were last typing in, **Add a text field…**, **Settings…**, a **Help** submenu (**Check
+for updates**, **What's new**, **Open log folder**, **Copy diagnostic report**), **Restart
+Proofline** and **Quit**.
+
+The icon's colour and corner show one state at a time:
+
+| Icon | Meaning |
+|---|---|
+| Your tray colour | Checking is on |
+| Grey | Checking is paused or off |
+| Red with **!** | The LanguageTool server can't be reached; the tooltip gives the reason |
+| Amber | AI is turned on but can't work: no API key is saved, the provider refused the key, or its server failed on the last request. The tooltip gives the reason |
+| A dot in the top right corner | A newer release is waiting. The tooltip names it and the menu's **Update available** item opens its page |
 
 ### Keyboard shortcuts
 
@@ -345,12 +363,12 @@ Settings save as soon as you change them, except the server address (**Save**) a
 | Section | What's there |
 |---|---|
 | General | Server address (Test / Save), language, start with Windows |
-| Checking | Typing pause, minimum words, Picky mode, hidden characters, personal dictionary, turned-off rules (by name) and categories (checkboxes) |
+| Checking | Typing pause, minimum words, skip quoted email text (in a reply or forward, check only what you write), Picky mode, hidden characters, personal dictionary, turned-off rules (by name) and categories (checkboxes) |
 | Apps & fields | Add a text field, apps (pick a running app) and window titles to skip, apps to always check, custom fields |
 | Appearance | Theme (follow Windows / light / dark), accent and tray colour, badge visibility, underlines |
 | Shortcuts | Four global shortcuts (pause or resume, check now, apply the first suggestion, AI Rephrase; the last is off by default), recorded by pressing the keys |
 | AI | Use AI suggestions (on or off), the provider, its API key (Save, Test) or server address, the model with its prices, the monthly spending limit (cloud providers), and today's and this month's usage totals |
-| Advanced | Debug mode, diagnostic report and logs, check for updates (with Check now), share anonymous usage counts, version, Help and Releases links |
+| Advanced | Debug mode, diagnostic report and logs, check for updates (with Check now), share anonymous usage counts, what a waiting release changes with its download link, version, Help and Releases links |
 
 All options and their `config.json` names are listed in
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
@@ -387,7 +405,7 @@ The app talks to LanguageTool's HTTP API (`POST /v2/check`).
   address you set), as described in that section.
 - Password fields are never read. By default the app also skips password managers, terminals,
   remote desktop and VM windows, code and spreadsheet editors, File Explorer, browser address
-  bars, search boxes, dropdowns, numeric fields and fields holding only numbers, user name and
+  bars, search boxes, dropdowns, numeric fields and fields holding only numbers or only a date or time, user name and
   email fields, fields labelled like one-time codes, card numbers, SSNs, PINs, API keys or tokens, and
   windows whose title contains *Password*, *Sign in*, *Log in*, *Login* or *Windows Security*.
 - Logs never contain what you type unless you turn on **Debug mode** (Settings › Advanced) or set

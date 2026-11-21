@@ -17,6 +17,8 @@ from proofline.text_snapshot import (
     FocusResult,
     TypingDebouncer,
     loggable,
+    logged_description,
+    logged_title,
     word_count,
 )
 from proofline.underlines import Underlines, UnderlineTarget
@@ -270,14 +272,14 @@ def _log_change(previous: FocusResult | None, current: FocusResult) -> None:
         or previous.focus_key != current.focus_key
         or previous.reason != current.reason
     ):
-        log.info("Focus: %s -> %s", current.description or "-", current.reason)
+        log.info("Focus: %s -> %s", logged_description(current.description) or "-", current.reason)
     snapshot = current.snapshot
     old = previous.snapshot if previous else None
     if snapshot and (old is None or old.caret_source != snapshot.caret_source):
         log.debug(
-            "Caret via %s at %s; field %s; window %r",
+            "Caret via %s at %s; field %s; window %s",
             snapshot.caret_source,
             snapshot.caret_rect,
             snapshot.field_rect,
-            snapshot.window_title,
+            logged_title(snapshot.window_title),
         )

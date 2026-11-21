@@ -120,7 +120,23 @@ class QuickSettings(QObject):
         screen = QGuiApplication.screenAt(icon_rect.center()) or QGuiApplication.primaryScreen()
         self.flyout.show_at(icon_rect, screen.availableGeometry())
 
+    def current_app(self) -> tuple[str, bool]:
+        """The app the user was last typing in and whether checking is off there; ("", False) if none."""
+        process, title, _status = self._app or ("", "", "")
+        return process, bool(process) and self._config_provider().is_disabled_for(process, title)
+
+    def toggle_current_app(self) -> None:
+        """The tray menu's "Turn off in <app>" / "Turn on in <app>"."""
+        process, disabled = self.current_app()
+        if not process:
+            return
+        if disabled:
+            self._enable_app(process)
+        else:
+            self._disable_app(process)
+
     def refresh(self) -> None:
+        self._tray.set_current_app(*self.current_app())
         if self.flyout.isVisible():
             self.flyout.set_state(self.state())
 

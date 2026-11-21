@@ -30,7 +30,20 @@ REASON_DROPDOWN = "dropdown (combo box)"
 REASON_SEARCH = "search field"
 REASON_NUMERIC = "numeric field"
 REASON_NUMBERS_ONLY = "numeric field (numbers only)"
+REASON_DATE_TIME = "date or time field"
 REASON_ACCOUNT_PREFIX = "account field"
+DATE_TIME_MAX_CHARS = 40
+WORD_PATTERN = re.compile(r"[^\W\d_]+")  # runs of letters
+_DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+           "november", "december")
+# Full names, three-letter forms ("mon", "nov"), the other usual short forms, AM/PM, ordinal endings
+# ("23rd"), time zone marks and the joining words a date-and-time box shows.
+DATE_TIME_WORDS = frozenset({
+    *_DAYS, *(day[:3] for day in _DAYS), "tues", "thur", "thurs",
+    *_MONTHS, *(month[:3] for month in _MONTHS), "sept",
+    "am", "pm", "a", "p", "m", "st", "nd", "rd", "th", "utc", "gmt", "z", "t", "at", "to",
+})
 REASON_SENSITIVE_PREFIX = "sensitive field"
 
 _WORD_START = r"(?<![a-z0-9])"
@@ -136,9 +149,22 @@ def text_skip_reason(text: str) -> str:
     Text with at least one digit and no letters (IP addresses, amounts, dates, codes, phone
     numbers) is not prose.
     """
-    if any(ch.isalpha() for ch in text) or not any(ch.isdigit() for ch in text):
+    if not any(ch.isdigit() for ch in text):
         return ""
-    return REASON_NUMBERS_ONLY
+    if not any(ch.isalpha() for ch in text):
+        return REASON_NUMBERS_ONLY
+    return REASON_DATE_TIME if _is_date_or_time(text) else ""
+
+
+def _is_date_or_time(text: str) -> bool:
+    """True for a short text that is only a date, a time or both: "Mon 11/23/2026", "8:00 AM",
+    "November 23, 2026 at 2:30 PM", "23rd Nov 2026" (a date or time box in a meeting form).
+    Every word in it must be a day name, a month name or one of the few words such boxes use."""
+    text = text.strip()
+    if len(text) > DATE_TIME_MAX_CHARS:
+        return False
+    words = WORD_PATTERN.findall(text.casefold())
+    return all(word in DATE_TIME_WORDS for word in words)
 
 
 def _is_dropdown(traits: FieldTraits) -> bool:

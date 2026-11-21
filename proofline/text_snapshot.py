@@ -5,6 +5,7 @@ Nothing here touches Windows APIs, so it can be unit tested anywhere.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from proofline.logging_setup import text_logging_enabled
@@ -81,6 +82,17 @@ class FocusResult:
 def logged_title(title: str) -> str:
     """A window title for the log: in full only when text logging is on."""
     return repr(title) if text_logging_enabled() else f"<{len(title)} chars>"
+
+
+DESCRIPTION_NAME = re.compile(r" name=(.*) hwnd=", re.DOTALL)
+
+
+def logged_description(description: str) -> str:
+    """A focused element's description for the log. Its name (a document title, an email subject,
+    a list entry) is written in full only when text logging is on, otherwise as its length."""
+    if text_logging_enabled():
+        return description
+    return DESCRIPTION_NAME.sub(lambda found: f" name=<{max(len(found.group(1)) - 2, 0)} chars> hwnd=", description)
 
 
 def loggable(text: str) -> str:

@@ -240,6 +240,7 @@ class TrayFlyout(QWidget):
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._status_label = QLabel()
         self._status_label.setWordWrap(True)
+        self._status_label.setTextFormat(Qt.TextFormat.PlainText)  # holds text from the server
         text = QVBoxLayout()
         text.setSpacing(1)
         text.addWidget(_bold(QLabel(APP_TITLE)))

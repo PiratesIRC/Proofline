@@ -5,17 +5,42 @@ from __future__ import annotations
 
 import html
 import re
+from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
 _TOKEN = re.compile(r"\S+|\s+")
+MAX_DIFF_TOKENS = 6000  # words plus the spaces between them, per side; more is not compared
+# The comparison's work grows with the number of (old position, new position) pairs that hold the
+# same word. Ordinary prose of the longest allowed length stays far below this; above it the
+# words that repeat most are left out of the lining-up (difflib's own shortcut for common items).
+MAX_SAME_WORD_PAIRS = 20_000
+
+
+def _opcodes(old: list[str], new: list[str]) -> list[tuple[str, int, int, int, int]]:
+    """How old becomes new, in bounded time whatever the two texts hold.
+
+    The text being compared with comes from an AI server, so its shape cannot be trusted: before
+    these limits one answer could keep the app busy for minutes (the cost was cubic in the number
+    of repeated tokens). Whitespace tokens are never used to line the two up: the single space
+    sits between every pair of words. Two texts too long to compare count as changed throughout.
+    """
+    if len(old) > MAX_DIFF_TOKENS or len(new) > MAX_DIFF_TOKENS:
+        return [("replace", 0, len(old), 0, len(new))]
+    repetitive = _same_word_pairs(old, new) > MAX_SAME_WORD_PAIRS
+    return SequenceMatcher(str.isspace, old, new, autojunk=repetitive).get_opcodes()
+
+
+def _same_word_pairs(old: list[str], new: list[str]) -> int:
+    counts = Counter(token for token in new if not token.isspace())
+    return sum(counts[token] for token in old)
 
 
 def changed_words_html(original: str, rewritten: str) -> str:
     """rewritten, escaped, with each run of new or changed words in <b>; spaces between changes join them."""
     old, new = _TOKEN.findall(original), _TOKEN.findall(rewritten)
     flags: list[bool] = []
-    for tag, _i1, _i2, j1, j2 in SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+    for tag, _i1, _i2, j1, j2 in _opcodes(old, new):
         flags.extend([tag != "equal"] * (j2 - j1))
     for k in range(1, len(new) - 1):
         if new[k].isspace() and flags[k - 1] and flags[k + 1]:
@@ -61,7 +86,7 @@ def word_hunks(original: str, rewritten: str) -> tuple[Hunk, ...]:
     """
     old, new = _TOKEN.findall(original), _TOKEN.findall(rewritten)
     spans = [(i1, i2, j1, j2) for tag, i1, i2, j1, j2
-             in SequenceMatcher(None, old, new, autojunk=False).get_opcodes() if tag != "equal"]
+             in _opcodes(old, new) if tag != "equal"]
     merged = _merge(spans, old)
     old_at, new_at = _starts(old), _starts(new)
     hunks = []
