@@ -140,7 +140,8 @@ py -3.13 -m venv .venv
 
 A round **P** icon appears in the system tray (check the `^` overflow area). Only one copy runs
 at a time. On a fresh install a short welcome window helps you pick a server, explains the badge,
-and offers **Start with Windows**.
+describes the optional AI suggestions with a button that opens **Settings › AI**, and offers
+**Start with Windows**.
 
 To set the server later, left-click the tray icon, choose **More settings**, and on **General**:
 

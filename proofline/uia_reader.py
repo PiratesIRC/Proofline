@@ -16,7 +16,7 @@ from functools import lru_cache
 import comtypes
 import uiautomation as auto
 
-from proofline import win32_edit, window_response
+from proofline import web_viewport, win32_edit, window_response
 from proofline.app_names import process_path
 from proofline.config import custom_field_matches, field_signature
 from proofline.field_filters import FieldTraits
@@ -200,6 +200,8 @@ def _snapshot(
         return FocusResult(focus_key, description, reason)
     caret_rect, caret_source = find_caret(control, text_pattern)
     bounds = control.BoundingRectangle
+    field_rect, off_page = _visible_field_rect(
+        control, ScreenRect(bounds.left, bounds.top, bounds.right, bounds.bottom))
     snapshot = FieldSnapshot(
         field_id=focus_key,
         hwnd=control.NativeWindowHandle,
@@ -209,15 +211,40 @@ def _snapshot(
         control_type=control.ControlTypeName,
         class_name=control.ClassName,
         text=text,
-        field_rect=ScreenRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
+        field_rect=field_rect,
         caret_rect=caret_rect,
         caret_source=caret_source,
         automation_id=control.AutomationId or "",
+        off_page=off_page,
     )
     pattern_names = "+".join(
         name for name, p in (("Text", text_pattern), ("Value", value_pattern)) if p is not None
     ) or "Win32 messages"
     return FocusResult(focus_key, description, f"ok via {pattern_names}", snapshot)
+
+
+def _visible_field_rect(control: auto.Control, field: ScreenRect) -> tuple[ScreenRect, bool]:
+    """A web text box's rectangle cut to the browser's page area, and whether it counts as hidden.
+
+    A box counts as hidden when none of it is inside the page area, or when the page edge cuts it
+    and less than MIN_CUT_VISIBLE_PX of it shows: a page's own fixed header (GitHub's top bar)
+    can cover that strip, and Windows does not report such headers. Other apps, and a browser
+    whose page area cannot be found, keep the full rectangle.
+    """
+    if control.FrameworkId != web_viewport.CHROMIUM_FRAMEWORK:
+        return field, False
+    try:
+        page = web_viewport.page_area(control.NativeWindowHandle)
+    except OSError:
+        log.debug("Could not read the browser page area", exc_info=True)
+        return field, False
+    if page is None:
+        return field, False
+    visible = web_viewport.clip_to_page(field, page)
+    if visible is None:
+        return field, True
+    cut_short = visible != field and visible.height < web_viewport.MIN_CUT_VISIBLE_PX
+    return visible, cut_short
 
 
 def _is_read_only(text_pattern: object, value_pattern: object) -> bool:

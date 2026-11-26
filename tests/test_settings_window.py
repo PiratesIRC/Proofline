@@ -386,6 +386,21 @@ def test_ai_page_is_listed_between_shortcuts_and_advanced(window):
     assert titles.index("Advanced") == titles.index("AI") + 1
 
 
+def test_show_page_ai_shows_the_window_and_selects_the_ai_row(window):
+    window.nav.setCurrentRow(0)
+    window.show_page("AI")
+    assert window.isVisible()
+    assert window.nav.currentItem().text() == "AI"
+    assert window.stack.currentIndex() == window.pages.index(window.ai)
+
+
+def test_show_page_with_an_unknown_title_keeps_the_current_row(window):
+    window.nav.setCurrentRow(1)
+    window.show_page("No such page")
+    assert window.isVisible()
+    assert window.nav.currentRow() == 1
+
+
 def test_shortcuts_page_has_the_ai_rephrase_row(window, store):
     edit = window.shortcuts._edits["hotkey_ai_rephrase"]
     assert edit.hotkey() == ""

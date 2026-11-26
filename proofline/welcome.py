@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 
 WINDOW_TITLE = "Welcome to Proofline"
 WINDOW_SIZE = (580, 470)
-PAGE_COUNT = 3
+PAGE_COUNT = 4
 BADGE_SCALE = 1.6
 BADGE_RENDER_SCALE = 3  # drawn at 3x and shown at BADGE_SCALE, so it stays sharp on any display
 WELCOME_STYLE = "QWidget#uiRoot QLabel#welcomeHeading { font-size: 20px; font-weight: 600; }"
@@ -66,12 +66,27 @@ DONE_TEXT = (
     "area). Left-click it for quick settings, right-click it for the menu. Everything here can be "
     "changed later in Settings."
 )
+AI_PAGE_TITLE = "AI suggestions (optional)"
+AI_FEATURES_TEXT = (
+    "The AI can rephrase a sentence, find more issues (including correctly spelled words used in the "
+    "wrong place), rewrite for clarity, and change tone."
+)
+AI_OFF_TEXT = (
+    "AI is off until you turn it on in Settings. Text is sent to the provider you choose only when you "
+    "ask for one of these actions."
+)
+AI_PROVIDER_TEXT = (
+    "You choose the provider and model. Claude is the default. Ollama runs on your own PC for free. "
+    "Other providers need an API key, kept in Windows Credential Manager."
+)
+AI_LIMIT_TEXT = "A monthly spending limit (default $1.00) stops cloud requests before they pass it."
+AI_BUTTON_TEXT = "Choose AI provider and key..."
 INSECURE_TITLE = "Unencrypted connection."
 INSECURE_MESSAGE = (
     "This server uses http:// on another computer, so what you type travels over the network "
     "unencrypted. Use https:// if the server supports it."
 )
-PAGE_TITLES = ("Connect to your LanguageTool server", "How it works", "You are all set")
+PAGE_TITLES = ("Connect to your LanguageTool server", "How it works", AI_PAGE_TITLE, "You are all set")
 
 
 def should_show_welcome(config: Config, config_existed: bool) -> bool:
@@ -92,17 +107,19 @@ def _paragraph(text: str) -> QLabel:
 
 
 class WelcomeWindow(QWidget):
-    def __init__(self, config_provider: Callable[[], Config], save: Callable[[Config], object]) -> None:
+    def __init__(self, config_provider: Callable[[], Config], save: Callable[[Config], object], *,
+                 open_ai_settings: Callable[[], None] | None = None) -> None:
         super().__init__()
         self.setObjectName("uiRoot")
         self.setWindowTitle(WINDOW_TITLE)
         self.setFixedSize(*WINDOW_SIZE)
         self._config_provider = config_provider
         self._save = save
+        self._open_ai_settings = open_ai_settings
         self._finished = False
         self._test_generation = 0
         self._pages = QStackedWidget()
-        for build in (self._server_page, self._how_page, self._done_page):
+        for build in (self._server_page, self._how_page, self._ai_page, self._done_page):
             self._pages.addWidget(build())
         self.back_button = QPushButton("Back")
         self.next_button = QPushButton("Next")
@@ -203,6 +220,27 @@ class WelcomeWindow(QWidget):
         column.addWidget(text)
         return column
 
+    def _ai_page(self) -> QWidget:
+        page = QWidget()
+        self.ai_button = QPushButton(AI_BUTTON_TEXT)
+        self.ai_button.setObjectName("accentButton")
+        self.ai_button.setEnabled(self._open_ai_settings is not None)
+        self.ai_button.clicked.connect(self._choose_ai)
+        layout = QVBoxLayout(page)
+        layout.addWidget(_heading(PAGE_TITLES[2]))
+        layout.addWidget(_paragraph(AI_FEATURES_TEXT))
+        layout.addWidget(_paragraph(AI_OFF_TEXT))
+        layout.addWidget(_paragraph(AI_PROVIDER_TEXT))
+        layout.addWidget(_paragraph(AI_LIMIT_TEXT))
+        layout.addSpacing(12)
+        layout.addWidget(self.ai_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addStretch(1)
+        return page
+
+    def _choose_ai(self) -> None:
+        if self._open_ai_settings is not None:
+            self._open_ai_settings()
+
     def _done_page(self) -> QWidget:
         page = QWidget()
         self.autostart = ToggleSwitch("Start Proofline when I sign in to Windows")
@@ -211,7 +249,7 @@ class WelcomeWindow(QWidget):
         row.addWidget(QLabel("Start Proofline when I sign in to Windows"), stretch=1)
         row.addWidget(self.autostart)
         layout = QVBoxLayout(page)
-        layout.addWidget(_heading(PAGE_TITLES[2]))
+        layout.addWidget(_heading(PAGE_TITLES[3]))
         layout.addWidget(_paragraph(DONE_TEXT))
         layout.addSpacing(12)
         layout.addLayout(row)

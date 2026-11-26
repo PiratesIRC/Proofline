@@ -134,6 +134,7 @@ class LanguageToolApp(QObject):
         self._overlay.badge_positions_changed.connect(self._on_badge_positions)
         self._overlay.underline_target_changed.connect(self._monitor.set_underline_target)
         self._monitor.underlines_changed.connect(self._overlay.on_underlines)
+        self._monitor.moving.connect(self._overlay.on_moving)
 
         self._picker = FieldPickerDialog(lambda: self._config)
         self._picker.capture_started.connect(self._monitor.start_capture)
@@ -180,7 +181,8 @@ class LanguageToolApp(QObject):
         self._updates.start()
         self._usage.start()
         if should_show_welcome(self._config, self._config_existed):
-            self._welcome = WelcomeWindow(lambda: self._config, self._save)
+            self._welcome = WelcomeWindow(lambda: self._config, self._save,
+                                          open_ai_settings=lambda: self._settings.show_page(self._settings.ai.title))
             self._welcome.show()
         log.info("%s started", APP_NAME)
 

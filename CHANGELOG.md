@@ -2,6 +2,30 @@
 
 All notable changes to this project.
 
+## 0.4.9 (2026-11-26)
+
+### Added
+- The welcome window on a fresh install has a new page, **AI suggestions (optional)**. It says
+  what the AI features do, that AI stays off until you turn it on and sends text only when you
+  ask, which providers need a key, and that a monthly limit caps the cost. Its **Choose AI
+  provider and key...** button opens Settings at the AI page.
+
+### Changed
+- **Find more issues** now asks the AI to read each sentence for meaning and flag a correctly
+  spelled word that is the wrong word there, such as *form* for *from*, *by* for *buy*, *their*
+  for *they're*, *meat* for *meet* or *of* for *have*. A spelling checker cannot catch these,
+  because each one is a real word.
+
+### Fixed
+- While a web page scrolls, the red underlines and the badge no longer trail behind the text
+  and jump. Browsers report where the text moved to only a few times a second, so Proofline now
+  hides the underlines, the badge and the issue card as soon as the text starts moving and shows
+  them again where it settles, about half a second after the scrolling stops.
+- In Edge and Chrome, the badge no longer lands on the browser's tabs or address bar when a text
+  box is scrolled partly out of view. It sits in the corner of the part you can see, and stays
+  hidden while the box is scrolled out of view or only a thin strip of it shows, which a page's
+  own top bar can cover.
+
 ## 0.4.8 (2026-11-21)
 
 ### Added

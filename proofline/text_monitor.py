@@ -26,6 +26,13 @@ from proofline.underlines import Underlines, UnderlineTarget
 log = logging.getLogger(__name__)
 
 POLL_INTERVAL_S = 0.3
+# While a field has focus, its position (and its first flagged word's) is checked this often
+# between polls. During a mouse-wheel scroll Edge reported new positions only every 220-300 ms
+# (measured 2026-11-26), too coarse to follow, so the badge and lines hide while the text moves
+# and come back once it has stayed put for SCROLL_SETTLE_S. A 250 ms settle was too short: the
+# lines came back between two of Edge's updates and jumped again.
+SCROLL_TICK_S = 0.1
+SCROLL_SETTLE_S = 0.5
 STOP_TIMEOUT_MS = 3000
 ERROR_LOG_EVERY = 50
 MS_PER_S = 1000
@@ -35,9 +42,14 @@ PAUSED = FocusResult((), "", "checking paused")
 Replacer = Callable[[ReplaceRequest], None]
 RectReader = Callable[[UnderlineTarget], Underlines | None]
 CaretReader = Callable[[], str | None]  # the field's text from its start to the caret
+AnchorReader = Callable[[UnderlineTarget], object]  # any value that changes when the text moves
 
 
 def _no_caret() -> str | None:
+    return None
+
+
+def _no_anchor(_target: UnderlineTarget) -> object:
     return None
 
 
@@ -53,6 +65,8 @@ class TextMonitor(QThread):
     replace_finished(bool, str): outcome of request_replace(); the message explains failures.
     underlines_changed(Underlines | None): where the set_underline_target() spans sit on
         screen, re-measured every poll (scrolling moves them without changing the text).
+    moving(bool): True when the focused field's text starts moving on screen (scrolling), False
+        after the poll that follows it settling; the badge and lines hide in between.
 
     All UI Automation work happens on this thread; pass `reader` and `replacer` to
     substitute fakes in tests.
@@ -65,6 +79,7 @@ class TextMonitor(QThread):
     focus_changed = pyqtSignal(object)  # FocusResult whenever the focused element or its status changes
     replace_finished = pyqtSignal(bool, str)
     underlines_changed = pyqtSignal(object)
+    moving = pyqtSignal(bool)
     caret_offset_ready = pyqtSignal(object, object)  # FieldSnapshot, caret offset (int) or None
 
     def __init__(
@@ -76,6 +91,7 @@ class TextMonitor(QThread):
         poll_interval_s: float = POLL_INTERVAL_S,
         rect_reader: RectReader | None = None,
         caret_reader: CaretReader | None = None,
+        anchor_reader: AnchorReader | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("TextMonitor")
@@ -84,6 +100,7 @@ class TextMonitor(QThread):
         self._replacer = replacer
         self._rect_reader = rect_reader
         self._caret_reader = caret_reader
+        self._anchor_reader = anchor_reader
         self._underline_target: UnderlineTarget | None = None
         self._requests: queue.SimpleQueue[ReplaceRequest] = queue.SimpleQueue()
         self._clock = clock
@@ -129,7 +146,7 @@ class TextMonitor(QThread):
         threading.current_thread().name = "TextMonitor"
         if self._reader is not None and self._replacer is not None:
             self._loop(self._reader, self._replacer, self._rect_reader or _no_rects,
-                       self._caret_reader or _no_caret)
+                       self._caret_reader or _no_caret, self._anchor_reader or _no_anchor)
             return
         # Imported here so UIA and its COM apartment belong to this thread.
         import uiautomation as auto
@@ -147,6 +164,7 @@ class TextMonitor(QThread):
                 self._replacer or text_replace.replace_in_focused_field,
                 self._rect_reader or underline_rects.measure,
                 self._caret_reader or uia_reader.read_text_before_caret,
+                self._anchor_reader or underline_rects.anchor,
             )
 
     def _report_capture(
@@ -190,6 +208,56 @@ class TextMonitor(QThread):
             self.underlines_changed.emit(underlines)
         return underlines
 
+    def _watch_target(self, snapshot: FieldSnapshot | None, underlines: Underlines | None) -> UnderlineTarget | None:
+        """What to watch for movement: the flagged spans while lines show, else the field alone."""
+        if snapshot is None:
+            return None
+        target = self._underline_target
+        if underlines is not None and target is not None and underlines.matches(target) and any(underlines.rects):
+            return target
+        return UnderlineTarget(snapshot.field_id, snapshot.text, ())
+
+    def _wait_for_poll(
+        self, snapshot: FieldSnapshot | None, underlines: Underlines | None, anchor_reader: AnchorReader
+    ) -> tuple[bool, bool]:
+        """Wait until the next poll is due; returns (stopped, moved).
+
+        With no focused field this is one plain wait. Otherwise the field's position (and its
+        first flagged word's) is read every SCROLL_TICK_S: when it moves, `moving(True)` hides
+        the badge and the lines at once, and the wait ends after the text has stayed put for
+        SCROLL_SETTLE_S, so the next poll measures and draws them in their new place.
+        """
+        watched = self._watch_target(snapshot, underlines)
+        if watched is None:
+            return self._stop_event.wait(self._poll_interval_s), False
+        lines_target = self._underline_target
+        start = time.monotonic()
+        baseline = _read_anchor(anchor_reader, watched)
+        moved_at: float | None = None
+        while not self._stop_event.wait(min(SCROLL_TICK_S, self._poll_interval_s)):
+            if self._underline_target is not lines_target:  # new text or findings: poll now
+                return False, moved_at is not None
+            now = time.monotonic()
+            position = _read_anchor(anchor_reader, watched)
+            if position != baseline:
+                if moved_at is None:
+                    log.debug("Badge and underlines hidden: the field's text moved (scrolling) from %s to %s",
+                             baseline, position)
+                    self.moving.emit(True)
+                    if watched.spans:
+                        self.underlines_changed.emit(None)
+                else:
+                    log.debug("Still moving: %s", position)
+                baseline, moved_at = position, now
+            elif moved_at is not None:
+                if now - moved_at >= SCROLL_SETTLE_S:
+                    log.debug("Text stopped moving after %.0f ms at %s; redrawing",
+                             (now - start) * MS_PER_S, position)
+                    return False, True
+            elif now - start >= self._poll_interval_s:
+                return False, False
+        return True, moved_at is not None
+
     def _report_caret(self, snapshot: FieldSnapshot | None, caret_reader: CaretReader) -> None:
         """Answer a caret request on this poll only: a press where no field is read is dropped."""
         if not self._caret_wanted.is_set():
@@ -205,7 +273,8 @@ class TextMonitor(QThread):
         offset = len(before) if before is not None and snapshot.text.startswith(before) else None
         self.caret_offset_ready.emit(snapshot, offset)
 
-    def _loop(self, reader: Reader, replacer: Replacer, rect_reader: RectReader, caret_reader: CaretReader) -> None:
+    def _loop(self, reader: Reader, replacer: Replacer, rect_reader: RectReader, caret_reader: CaretReader,
+              anchor_reader: AnchorReader = _no_anchor) -> None:
         log.info("Text monitor running (poll every %.0f ms)", self._poll_interval_s * MS_PER_S)
         delay_ms = self._config.debounce_ms
         debouncer = TypingDebouncer(delay_ms / MS_PER_S)
@@ -214,7 +283,13 @@ class TextMonitor(QThread):
         last_captured: tuple[object, ...] | None = None
         underlines: Underlines | None = None
 
-        while not self._stop_event.wait(self._poll_interval_s):
+        while True:
+            snapshot = previous.snapshot if previous is not None else None
+            stopped, moved = self._wait_for_poll(snapshot, underlines, anchor_reader)
+            if stopped:
+                break
+            if moved:
+                underlines = None  # the lines are hidden; the next measurement draws them again
             self._apply_pending_replacements(replacer)
             config = self._config
             if config.debounce_ms != delay_ms:
@@ -229,6 +304,8 @@ class TextMonitor(QThread):
                 failures += 1
                 if failures % ERROR_LOG_EVERY == 1:
                     log.exception("Reading the focused field failed (%d failures so far)", failures)
+                if moved:
+                    self.moving.emit(False)
                 continue
 
             last_captured = self._report_capture(raw, last_captured) if capturing else None
@@ -242,6 +319,8 @@ class TextMonitor(QThread):
             previous = result
             self._report_caret(result.snapshot, caret_reader)
             underlines = self._measure_underlines(result.snapshot, rect_reader, underlines)
+            if moved:
+                self.moving.emit(False)  # after this poll's field_changed, so the badge returns in place
 
             ready = debouncer.update(result.snapshot, self._clock())
             if ready is not None and word_count(ready.text) < config.min_words:
@@ -254,6 +333,14 @@ class TextMonitor(QThread):
                 log.info("Typing paused in %s: %s", ready.describe(), loggable(ready.text))
                 self.text_ready.emit(ready)
         log.info("Text monitor stopped")
+
+
+def _read_anchor(anchor_reader: AnchorReader, target: UnderlineTarget) -> object:
+    try:
+        return anchor_reader(target)
+    except Exception:  # elements vanish mid-read; treat it as "no position"
+        log.debug("Reading the underline anchor failed", exc_info=True)
+        return None
 
 
 def _apply_config(result: FocusResult, config: Config) -> FocusResult:

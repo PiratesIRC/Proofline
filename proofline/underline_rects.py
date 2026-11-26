@@ -16,6 +16,42 @@ END = auto.TextPatternRangeEndpoint.End
 CHARACTER = auto.TextUnit.Character
 
 
+def anchor(target: UnderlineTarget) -> tuple[object, ...] | None:
+    """Where the field, and its first flagged span if any, sit now: a cheap check for scrolling.
+
+    Asks for the focused element again on every call. An element fetched earlier can keep
+    reporting where the text was when it was fetched (Edge, measured 2026-11-26), while a fresh
+    one followed a mouse-wheel scroll, moving every 220-300 ms; one read costs about 4-6 ms.
+    None when the field lost focus.
+    """
+    focused = auto.GetFocusedControl()
+    if focused is None:
+        return None
+    control = uia_reader.resolve_editable(focused)
+    if tuple(control.GetRuntimeId() or ()) != target.field_id:
+        return None
+    box = control.BoundingRectangle
+    field = (box.left, box.top, box.right, box.bottom)
+    return (field, _first_span_corner(control, target))
+
+
+def _first_span_corner(control: auto.Control, target: UnderlineTarget) -> tuple[int, int] | None:
+    """Top-left corner of the first span's first rectangle; None without spans or rectangles."""
+    if not target.spans:
+        return None
+    pattern = control.GetPattern(auto.PatternId.TextPattern)
+    if pattern is None:
+        return None
+    span = target.spans[0]
+    rng = pattern.DocumentRange.textRange.Clone()
+    rng.MoveEndpointByRange(END, rng, START)  # collapse to the start of the text
+    if rng.Move(CHARACTER, span.offset) != span.offset:
+        return None
+    rng.MoveEndpointByUnit(END, CHARACTER, span.length)
+    rects = auto.TextRange(textRange=rng).GetBoundingRectangles()
+    return (rects[0].left, rects[0].top) if rects else None
+
+
 def measure(target: UnderlineTarget) -> Underlines | None:
     """Rectangles for each span of target in the field the reader last resolved.
 

@@ -132,6 +132,14 @@ class SettingsWindow(QWidget):
         self.raise_()
         self.activateWindow()
 
+    def show_page(self, title: str) -> None:
+        """Show the window and select the nav row with this title; an unknown title keeps the current page."""
+        self.show_settings()
+        for row in range(self.nav.count()):
+            if self.nav.item(row).text() == title:
+                self.nav.setCurrentRow(row)
+                return
+
     def reload(self) -> None:
         """Re-read every control from the current config (e.g. after a tray change)."""
         config = self._config_provider()

@@ -54,6 +54,7 @@ class FieldSnapshot:
     caret_rect: ScreenRect | None
     caret_source: str
     automation_id: str = ""  # UI Automation AutomationId; part of badge_placement.field_key
+    off_page: bool = False  # a web text box scrolled entirely out of the browser's page area
 
     def describe(self) -> str:
         return (

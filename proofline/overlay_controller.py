@@ -127,6 +127,7 @@ class OverlayController(QObject):
         self._message = ""
         self._typed = False  # the text changed while this field had focus; until then no gray badge
         self._drag_field: tuple[int, ...] | None = None  # field_id the badge drag started on
+        self._moving = False  # the field's text is scrolling: badge, lines and card stay hidden
 
         self._badge.clicked.connect(self._toggle_popup)
         self._badge.drag_started.connect(self._on_drag_started)
@@ -304,16 +305,37 @@ class OverlayController(QObject):
             self._set_state(BadgeState.ERROR, message)
             self.refresh()
 
+    def on_moving(self, moving: bool) -> None:
+        """The field's text started or stopped moving on screen (the monitor's `moving` signal).
+
+        Browsers report new positions only a few times a second while a page scrolls, so the
+        badge and lines would trail the text and jump; they hide instead and come back where
+        the text settled.
+        """
+        self._moving = moving
+        if moving:
+            self._underlines.hide()
+            self._hide_card()
+            if not self._badge.is_held:
+                self._hide_badge()
+        else:
+            self.refresh()
+            snapshot = self._snapshot
+            log.debug("Badge back after moving: visible=%s at %s for field %s", self._badge.isVisible(),
+                     self._badge.pos(), snapshot.field_rect if snapshot else None)
+
     def refresh(self) -> None:
         """Re-place and redraw the badge, e.g. after the caret moved or settings changed."""
         self._sync_underlines()
+        if self._moving and not self._badge.is_held:  # on_moving(False) refreshes again
+            return
         self._update_card()
         snapshot = self._snapshot
         if self._badge.is_dragging:  # placed and shown or hidden again when the drag ends
             self._badge.set_state(self._state, len(self._matches), self._message)
             return
         show_silent = self._config_provider().badge_always_visible
-        if snapshot is None or (self._state in SILENT_STATES and not show_silent):
+        if snapshot is None or snapshot.off_page or (self._state in SILENT_STATES and not show_silent):
             self._badge.hide()
             return
         if self._state is BadgeState.CHECKING and not (self._typed and self._will_check(snapshot)):
