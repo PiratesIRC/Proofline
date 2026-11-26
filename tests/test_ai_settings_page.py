@@ -343,7 +343,8 @@ def test_privacy_link_shows_the_shown_providers_data_page(page):
 def test_privacy_link_is_its_own_link_label_so_it_takes_the_accent(page):
     # A link inside a style-sheet-styled label (cardDescription) draws in default blue on dark.
     assert "<a " not in page.privacy_label.text()
-    assert page.privacy_link.openExternalLinks() and "privacy.anthropic.com" in page.privacy_link.text()
+    assert page.privacy_link.openExternalLinks()
+    assert provider("anthropic").privacy_url in page.privacy_link.text()
     assert page.privacy_link.objectName() == ""
 
 
